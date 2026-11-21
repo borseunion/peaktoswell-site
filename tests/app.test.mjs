@@ -372,3 +372,30 @@ test('the version number is the same in index.html and sw.js', () => {
   const manifest = JSON.parse(file('manifest.webmanifest'));
   for (const icon of manifest.icons) assert.doesNotThrow(() => readFileSync(new URL(`../${icon.src}`, import.meta.url)), `${icon.src} is missing`);
 });
+
+test('a resort that opened before its planned date has no out-of-season days until that date', () => {
+  // The forecast file marks every day before the list's opening date, whatever the lifts do.
+  const days = ['2026-11-21', '2026-11-22', '2026-11-28'].map((date, n) => DAY(date, 90 - n, { lifts_may_stop: n < 2 ? 'out_of_season' : 'low' }));
+  const early = { ...FORECAST, levels: [{ key: 'top', elevation_m: 3000, days }] };
+  const asListed = app.levelView(early, 'top');
+  assert.deepEqual(asListed.days.map((d) => d.lifts.kind), ['off', 'off', 'low']);
+  assert.equal(asListed.best, 'Best: Sat 88'); // 28 Nov, the only day inside the planned season
+  const opened = app.levelView(early, 'top', '2026-11-28');
+  assert.deepEqual(opened.days.map((d) => d.lifts.kind), ['early', 'early', 'low']);
+  assert.equal(opened.days[0].lifts.text, 'Opened early · no lift estimate');
+  assert.equal(opened.best, 'Best: Sat 90'); // 21 Nov now counts
+  assert.equal(opened.offDays, 0);
+  // A day after the season's end stays out of season even for a resort that is open.
+  assert.equal(app.liftsView(DAY('2027-05-03', 80, { lifts_may_stop: 'out_of_season' }), '2026-11-28').kind, 'off');
+
+  const row = { id: 'fr-tignes', name: 'Tignes', state: 'open', country_name: 'France', region: 'Savoie', season_opens: '2026-11-28', season_ends: '2027-05-02' };
+  const status = { state: 'open', season: { opens: '2026-11-28', ends: '2027-05-02', phase: 'running' } };
+  const open = app.resortHtml(row, 'forecast', status, early, false, 'top', '');
+  assert.ok(open.includes('Opened early · no lift estimate'));
+  assert.ok(!open.includes('Out of season'));
+  assert.ok(!open.includes('score-off'));
+  // Closed and not yet opened: the days stay out of season.
+  const closed = app.resortHtml({ ...row, state: 'closed' }, 'forecast', { state: 'closed', season: { opens: '2026-11-28', ends: '2027-05-02', phase: 'before' } }, early, false, 'top', '');
+  assert.ok(closed.includes('Out of season'));
+  assert.ok(!closed.includes('Opened early'));
+});

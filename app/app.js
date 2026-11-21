@@ -9,7 +9,7 @@
 //   data/status/<id>.json        lifts, slopes and snow of one resort (missing for some)
 //   data/forecast/<id>.json      seven days at three elevations
 
-export const VERSION = '0.3'; // shown on the About screen
+export const VERSION = '0.4'; // shown on the About screen
 export const DATA = 'data/';
 export const STALE_HOURS = 24; // the backend's own rule (publish.py, STALE_AFTER_HOURS)
 const HOUR = 3600 * 1000;
@@ -341,9 +341,15 @@ export function causeText(cause) {
   }
 }
 
-/** The lift line of a day: kind is 'low', 'medium', 'high' or 'off' (outside the season). */
-export function liftsView(day) {
+/**
+ * The lift line of a day: kind is 'low', 'medium', 'high', 'off' (outside the season) or 'early'.
+ * early: the resort has opened before the planned date in the list. The forecast file marks the
+ * days until that date as out of season and carries no lift estimate for them; openedBefore is
+ * that planned date, given only when the resort is open or its season is running.
+ */
+export function liftsView(day, openedBefore = null) {
   const chance = day && day.lifts_may_stop;
+  if (chance === 'out_of_season' && openedBefore && day.date < openedBefore) return { kind: 'early', text: 'Opened early · no lift estimate', cause: '' };
   if (chance === 'out_of_season') return { kind: 'off', text: 'Out of season', cause: '' };
   if (chance !== 'low' && chance !== 'medium' && chance !== 'high') return { kind: 'none', text: '', cause: '' };
   const causes = Array.isArray(day.causes) ? day.causes : [];
@@ -351,7 +357,7 @@ export function liftsView(day) {
   return { kind: chance, text: `Lifts may stop: ${chance} chance`, cause: chance === 'low' ? '' : causeText(main) };
 }
 
-export function dayView(day) {
+export function dayView(day, openedBefore = null) {
   const snow = day.new_snow_cm;
   const wind = span(day.wind_kmh);
   const knots = span(day.wind_kn);
@@ -365,16 +371,16 @@ export function dayView(day) {
     rating: ratingWord(day.rating),
     line1: `${temp(day.feels_c)} feels · ${isNumber(snow) && snow > 0 ? `${snow} cm new` : 'no new snow'}`,
     line2,
-    lifts: liftsView(day),
+    lifts: liftsView(day, openedBefore),
   };
 }
 
 /** One elevation of a forecast file, ready to draw. best counts only days inside the season. */
-export function levelView(forecast, key) {
+export function levelView(forecast, key, openedBefore = null) {
   const levels = (forecast && forecast.levels) || [];
   const level = levels.find((l) => l.key === key) || levels[levels.length - 1];
   if (!level) return null;
-  const days = (level.days || []).map(dayView);
+  const days = (level.days || []).map((day) => dayView(day, openedBefore));
   const inSeason = days.filter((d) => d.lifts.kind !== 'off' && d.score !== null);
   const best = inSeason.reduce((a, d) => (a && a.score >= d.score ? a : d), null);
   return {
@@ -551,13 +557,13 @@ export function statusHtml(row, status, now = new Date()) {
 function liftsHtml(lifts) {
   if (lifts.kind === 'none') return '';
   const cause = lifts.cause ? `<span class="cause">${esc(capital(lifts.cause))}</span>` : '';
-  if (lifts.kind === 'low') return `<span class="lift">${esc(lifts.text)}</span>`;
+  if (lifts.kind === 'low' || lifts.kind === 'early') return `<span class="lift">${esc(lifts.text)}</span>`;
   return `<span class="lift-wrap"><span class="lift-pill lift-${lifts.kind}">${esc(lifts.text)}</span>${cause}</span>`;
 }
 
 /** The Forecast tab. forecast is the resort's file, or null when it has none. */
-export function forecastHtml(forecast, levelKey, now = Date.now()) {
-  const view = levelView(forecast, levelKey);
+export function forecastHtml(forecast, levelKey, now = Date.now(), openedBefore = null) {
+  const view = levelView(forecast, levelKey, openedBefore);
   if (!view || !view.days.length) {
     return noteCard('No forecast yet', 'The forecast for this resort has not been computed yet. It is refreshed twice a day.');
   }
@@ -617,8 +623,11 @@ export function resortHtml(row, tab, status, forecast, isFav, level, loading, sa
   const place = [row.country_name, row.region].filter(Boolean).join(' · ');
   const old = row.stale ? '<span class="chip chip-old">Old data</span>' : '';
   const tabs = ['status', 'forecast', 'satellite', 'about'].map((key) => `<a href="#/resort/${esc(row.id)}${key === 'status' ? '' : `/${key}`}"${key === tab ? ' aria-current="page"' : ''}>${capital(key)}</a>`).join('');
+  // Open, or seen open this season, before the planned date: the days until then are not "out of season".
+  const running = row.state === 'open' || row.state === 'closed_today' || (status && status.season && status.season.phase === 'running');
+  const openedBefore = running && season.opens ? season.opens : null;
   let body;
-  if (tab === 'forecast') body = forecast === undefined ? loading : forecastHtml(forecast, level);
+  if (tab === 'forecast') body = forecast === undefined ? loading : forecastHtml(forecast, level, Date.now(), openedBefore);
   else if (tab === 'satellite') body = satelliteHtml();
   else if (tab === 'about') body = status === undefined ? loading : aboutTabHtml(row, status);
   else body = status === undefined ? loading : statusHtml(row, status);
