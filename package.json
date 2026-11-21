@@ -1,0 +1,9 @@
+{
+  "name": "peaktoswell-site",
+  "private": true,
+  "type": "module",
+  "description": "The peaktoswell app as peaktoswell.com serves it. No build step and no dependencies; this file only tells Node how to read the app for its tests.",
+  "scripts": {
+    "test": "node --test tests/app.test.mjs"
+  }
+}
