@@ -9,7 +9,7 @@
 //   data/status/<id>.json        lifts, slopes and snow of one resort (missing for some)
 //   data/forecast/<id>.json      seven days at three elevations
 
-export const VERSION = '0.4'; // shown on the About screen
+export const VERSION = '0.5'; // shown on the About screen
 export const DATA = 'data/';
 export const STALE_HOURS = 24; // the backend's own rule (publish.py, STALE_AFTER_HOURS)
 const HOUR = 3600 * 1000;
@@ -320,6 +320,22 @@ export function ratingWord(rating) {
   return RATINGS[rating] || capital(String(rating || '').replace(/_/g, ' '));
 }
 
+const LIMIT_WORDS = {
+  cloud: 'In cloud', cold: 'Very cold', warm: 'Warm', wind: 'Strong wind', gusts: 'Gusts', rain: 'Rain',
+  snowfall: 'Heavy snowfall', thunderstorms: 'Thunderstorms', precipitation: 'Rain or snow', ice: 'Icy',
+};
+
+/**
+ * Why a day scores lower, in a few words: 'In cloud' or 'Very cold · strong wind'. From the forecast file's
+ * limits (the engine names at most two, the strongest first); '' for a score of 80 or more and for files without them.
+ */
+export function whyText(day) {
+  if (!day || !isNumber(day.score) || day.score >= 80 || !Array.isArray(day.limits)) return '';
+  let codes = day.limits.filter((code) => LIMIT_WORDS[code]);
+  if (codes.includes('wind')) codes = codes.filter((code) => code !== 'gusts');   // strong wind says it
+  return codes.slice(0, 2).map((code, n) => (n ? LIMIT_WORDS[code].toLowerCase() : LIMIT_WORDS[code])).join(' · ');
+}
+
 /** What might stop the lifts, in a few words: 'gusts to 63 km/h'. */
 export function causeText(cause) {
   if (!cause) return '';
@@ -369,6 +385,7 @@ export function dayView(day, openedBefore = null) {
     score: isNumber(day.score) ? Math.round(day.score) : null,
     look: scoreClass(day.score),
     rating: ratingWord(day.rating),
+    why: whyText(day),
     line1: `${temp(day.feels_c)} feels · ${isNumber(snow) && snow > 0 ? `${snow} cm new` : 'no new snow'}`,
     line2,
     lifts: liftsView(day, openedBefore),
@@ -574,7 +591,7 @@ export function forecastHtml(forecast, levelKey, now = Date.now(), openedBefore 
   parts.push(`<div class="fc-head"><span>Ski score 0–100 · best 4 hours of the day</span>${view.best ? `<b>${esc(view.best)}</b>` : ''}</div>`);
   const days = view.days.map(
     (d) =>
-      `<div class="day${d.lifts.kind === 'off' ? ' off' : ''}"><div class="day-date"><b>${esc(d.weekday)}</b><span>${esc(d.short)}</span></div><div class="day-score"><div class="score score-${d.lifts.kind === 'off' ? 'off' : d.look}">${esc(d.score ?? '–')}</div><span>${esc(d.rating)}</span></div><div class="day-main"><div class="day-l1">${esc(d.line1)}</div><div class="day-l2">${esc(d.line2)}</div>${liftsHtml(d.lifts)}</div></div>`,
+      `<div class="day${d.lifts.kind === 'off' ? ' off' : ''}"><div class="day-date"><b>${esc(d.weekday)}</b><span>${esc(d.short)}</span></div><div class="day-score"><div class="score score-${d.lifts.kind === 'off' ? 'off' : d.look}">${esc(d.score ?? '–')}</div><span>${esc(d.rating)}</span></div><div class="day-main">${d.why ? `<div class="day-why">${esc(d.why)}</div>` : ''}<div class="day-l1">${esc(d.line1)}</div><div class="day-l2">${esc(d.line2)}</div>${liftsHtml(d.lifts)}</div></div>`,
   );
   parts.push(cardOf(days));
   const models = Array.isArray(forecast.models) ? forecast.models.length : 0;
@@ -681,7 +698,7 @@ export function aboutHtml(rows) {
     entry('Resort websites', '#/', 'See resorts', 'Status read from the resort’s own page where LiftRadar has none.', 'The source is named and linked on every resort page.'),
     entry('Open-Meteo', 'https://open-meteo.com', 'open-meteo.com', 'Weather model data for the forecast.', 'Weather data by Open-Meteo.com, CC BY 4.0.'),
   ];
-  const reading = `<div class="panel note-card"><p>The ski score rates the weather only. It does not say whether the lifts run or how much snow lies on the slopes.</p><p>The chance that lifts stop is an estimate from the forecast, not the resort’s decision.</p></div>`;
+  const reading = `<div class="panel note-card"><p>The ski score rates the weather only. It does not say whether the lifts run or how much snow lies on the slopes. Under 80, the main reason is named: in cloud, very cold, strong wind, heavy snowfall.</p><p>The chance that lifts stop is an estimate from the forecast, not the resort’s decision.</p></div>`;
   const fact = (key, value) => `<div class="kv fact"><span>${key}</span><span class="v">${esc(value)}</span></div>`;
   return `<div class="topline"><div class="brand">PEAKTOSWELL</div><span></span></div><main class="screen"><h1>About &amp; data sources</h1><p class="lead">Live lift and slope status and a 7-day forecast at three elevations for ${rows.length} European ski resorts. Free, no ads, no accounts.</p><div class="sec"><h2>Data sources</h2><span></span></div>${cardOf(sources)}<div class="sec"><h2>How to read it</h2><span></span></div>${reading}<div class="panel">${fact('Publisher', 'Boris Zarev')}${fact('Version', `${VERSION} · early build`)}</div><div class="fine">The satellite image, resort photos and ski maps come with later builds.</div></main>${navHtml('about')}`;
 }

@@ -4,7 +4,7 @@
 // With a connection the data always comes from the network. Without one the saved copy
 // is answered instead, marked so that the app can say "Offline · showing data saved …".
 
-const VERSION = '4'; // the same number as ?v= in index.html: raise both together
+const VERSION = '5'; // the same number as ?v= in index.html: raise both together
 const SHELL = `shell-${VERSION}`;
 const DATA = 'data-1';
 const SHELL_FILES = [

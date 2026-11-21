@@ -399,3 +399,17 @@ test('a resort that opened before its planned date has no out-of-season days unt
   assert.ok(closed.includes('Out of season'));
   assert.ok(!closed.includes('Opened early'));
 });
+
+test('the main reason under a score below 80 (engine 0.2.3: limits)', () => {
+  assert.equal(app.whyText({ score: 72, limits: ['cloud'] }), 'In cloud');
+  assert.equal(app.whyText({ score: 55, limits: ['cold', 'wind'] }), 'Very cold · strong wind');
+  assert.equal(app.whyText({ score: 0, limits: ['wind', 'gusts'] }), 'Strong wind', 'strong wind says it');
+  assert.equal(app.whyText({ score: 40, limits: ['gusts', 'snowfall'] }), 'Gusts · heavy snowfall');
+  assert.equal(app.whyText({ score: 85, limits: ['cloud'] }), '', 'only under 80');
+  assert.equal(app.whyText({ score: 50 }), '', 'files from before 0.2.3 have no limits');
+  assert.equal(app.whyText({ score: 50, limits: ['something new'] }), '', 'an unknown code is left out');
+  const days = [DAY('2026-11-21', 72, { lifts_may_stop: 'low', limits: ['cloud'] }), DAY('2026-11-22', 100, { lifts_may_stop: 'low' })];
+  const html = app.forecastHtml({ ...FORECAST, levels: [{ key: 'top', elevation_m: 3000, days }] }, 'top');
+  assert.ok(html.includes('<div class="day-why">In cloud</div>'));
+  assert.equal(html.split('day-why').length - 1, 1, 'none under the 100');
+});

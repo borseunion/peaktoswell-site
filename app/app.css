@@ -853,6 +853,12 @@ button {
   flex-direction: column;
   gap: 4px;
 }
+.day-why {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--slate);
+  margin-bottom: 2px;
+}
 .day-l1 {
   font-size: 14px;
   font-weight: 700;
