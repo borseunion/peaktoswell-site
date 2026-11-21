@@ -1,7 +1,10 @@
 // Tests of the app's pure functions. Run from the top of the repository: node --test tests/app.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import * as app from '../app/app.js';
+
+const file = (name) => readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
 
 const NOW = new Date(2026, 10, 21, 15, 0, 0); // 21 Nov 2026, on the device's clock
 const HOUR = 3600 * 1000;
@@ -291,4 +294,81 @@ test('text from the data is escaped before it reaches the page', () => {
   assert.ok(!html.includes('<script>'));
   assert.ok(!html.includes('<i>note'));
   assert.ok(!html.includes('A<b>'));
+});
+
+test('the Favourites screen', () => {
+  const rows = app.joinRows(RESORTS, INDEX, NOW.getTime());
+  const favs = new Set(['at-soelden', 'bg-bansko', 'bg-borovets']);
+  const files = { 'at-soelden': SOELDEN, 'bg-bansko': { state: 'closed', lifts: { open: 0, total: 14 }, slopes: { open: 0, total: 17 }, snow: { top_cm: 0 }, checked_at: NOW.toISOString() }, 'bg-borovets': null };
+  const html = app.favouritesHtml(rows, favs, (id) => files[id]);
+  assert.match(html, /<span>3 saved<\/span>/);
+  assert.match(html, /<b>24 of 31<\/b><span>lifts<\/span>/);
+  assert.match(html, /<b>22 of 58<\/b><span>slopes<\/span>/);
+  assert.match(html, /<b>84 cm<\/b><span>snow, top<\/span>/);
+  assert.match(html, /<b>0 of 17<\/b><span>slopes<\/span>/);
+  assert.equal(html.split('snow, top').length - 1, 1); // a closed resort shows no snow depth
+  assert.match(html, /No live data from the resort/);
+  assert.match(html, /Austria · Tirol · checked 21 Nov, \d\d:\d\d/);
+  // While a favourite's own file is loading the list's row is shown: lifts and snow, no slopes yet.
+  const early = app.favouritesHtml(rows, new Set(['at-soelden']), () => undefined);
+  assert.match(early, /<b>24 of 31<\/b><span>lifts<\/span>/);
+  assert.ok(!early.includes('slopes'));
+  assert.match(app.favouritesHtml(rows, new Set(), () => undefined), /No favourites yet/);
+  assert.match(app.favouritesHtml(rows, favs, (id) => files[id], '2026-11-21T13:40:00Z'), /Offline · showing data saved 21 Nov/);
+});
+
+test('the About screen names every source the app shows data from', () => {
+  const html = app.aboutHtml(app.joinRows(RESORTS, INDEX, NOW.getTime()));
+  assert.match(html, /Lift and slope status for 2 resorts\./);
+  assert.match(html, /Weather data by Open-Meteo\.com, CC BY 4\.0\./);
+  assert.match(html, /href="https:\/\/liftradar\.eu" target="_blank" rel="noopener"/);
+  assert.match(html, /The ski score rates the weather only\./);
+  assert.match(html, /an estimate from the forecast, not the resort’s decision/);
+  assert.ok(html.includes(`${app.VERSION} · early build`));
+});
+
+test('a resort’s About tab', () => {
+  const row = { id: 'at-soelden', name: 'Sölden', country_name: 'Austria', region: 'Tirol', base_m: 1350, mid_m: 2300, top_m: 3340, season_opens: '2026-10-09', season_ends: '2027-05-02', about: null };
+  const html = app.aboutTabHtml(row, { ...SOELDEN, website: 'https://www.soelden.com', size: { lifts: 31, slopes: 58, slopes_km: 147 } });
+  assert.match(html, /<b>3340<\/b><span>Top · m<\/span>/);
+  assert.match(html, /<span>Slopes<\/span><span class="v">147 km<\/span>/);
+  assert.match(html, /<span>Season ends<\/span><span class="v">2 May 2027<\/span>/);
+  assert.match(html, /class="cta cta-ink" href="https:\/\/www\.soelden\.com\/"[^>]*>soelden\.com</);
+  assert.match(html, /come with a later build/);
+  const withText = app.aboutTabHtml({ ...row, about: 'A glacier resort in the Ötztal.' }, null);
+  assert.match(withText, /<p class="lead">A glacier resort in the Ötztal\.<\/p>/);
+  assert.ok(!withText.includes('later build'));
+  // A resort we read ourselves: its own page is its website.
+  const own = app.aboutTabHtml(row, { website: null, source: { kind: 'resort', url: 'https://www.banskoski.com/en' } });
+  assert.match(own, />banskoski\.com</);
+});
+
+test('offline: the banner, and where it stands', () => {
+  assert.equal(app.offlineBanner(null), '');
+  assert.match(app.offlineBanner('2026-11-21T13:40:00Z'), /Offline · showing data saved 21 Nov, \d\d:\d\d/);
+  const rows = app.joinRows(RESORTS, INDEX, NOW.getTime());
+  assert.match(app.resultsHtml(rows, new Set(), '', INDEX.generated_at, '2026-11-21T13:40:00Z'), /^<div class="banner banner-off">/);
+  const row = { id: 'at-soelden', name: 'Sölden', state: 'open', country_name: 'Austria', region: 'Tirol' };
+  const onStatus = app.resortHtml(row, 'status', SOELDEN, FORECAST, false, 'top', '', { status: '2026-11-21T13:40:00Z', forecast: null });
+  assert.match(onStatus, /id="tab"><div class="banner banner-off">/);
+  const onForecast = app.resortHtml(row, 'forecast', SOELDEN, FORECAST, false, 'top', '', { status: '2026-11-21T13:40:00Z', forecast: null });
+  assert.ok(!onForecast.includes('banner-off'));
+});
+
+test('the version number is the same in index.html and sw.js', () => {
+  const page = file('index.html');
+  const versions = [...page.matchAll(/\?v=(\d+)/g)].map((m) => m[1]);
+  assert.equal(versions.length, 2);
+  assert.equal(versions[0], versions[1]);
+  const worker = /const VERSION = '(\d+)';/.exec(file('sw.js'));
+  assert.ok(worker, 'sw.js has a VERSION');
+  assert.equal(worker[1], versions[0]);
+  // Every file the service worker keeps for offline use exists.
+  const list = /const SHELL_FILES = \[([\s\S]*?)\];/.exec(file('sw.js'))[1];
+  for (const [, name] of list.matchAll(/['`]([^'`]+)['`]/g)) {
+    if (name === './') continue;
+    assert.doesNotThrow(() => readFileSync(new URL(`../${name.replace(/\?v=.*$/, '')}`, import.meta.url)), `${name} is missing`);
+  }
+  const manifest = JSON.parse(file('manifest.webmanifest'));
+  for (const icon of manifest.icons) assert.doesNotThrow(() => readFileSync(new URL(`../${icon.src}`, import.meta.url)), `${icon.src} is missing`);
 });

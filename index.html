@@ -8,13 +8,19 @@
 <!-- An early build: kept out of search engines until the first version is complete. -->
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#F2F4F5">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="peaktoswell">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="app/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="app/icons/apple-touch-icon.png">
 <link rel="preload" href="app/fonts/manrope-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="app/app.css?v=1">
+<!-- The number after ?v= is the same in both lines below and in sw.js: raise all three together. -->
+<link rel="stylesheet" href="app/app.css?v=2">
 </head>
 <body>
 <div id="app" class="app"><p class="boot">Loading resorts…</p></div>
 <noscript><p style="font-family: system-ui, sans-serif; padding: 20px">peaktoswell needs JavaScript to show the resorts.</p></noscript>
-<script type="module" src="app/app.js?v=1"></script>
+<script type="module" src="app/app.js?v=2"></script>
 </body>
 </html>
