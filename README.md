@@ -6,7 +6,7 @@ What https://peaktoswell.com serves (GitHub Pages, branch `main`).
 - `index.html` and `app/` are the app: plain HTML, CSS and one JavaScript module, with no build step. What is in the repository is what the browser loads.
 - `sw.js` is the service worker. It keeps the app and every data file the app has shown on the device, so that both open without a connection; with a connection the data always comes from the network.
 - `manifest.webmanifest` and `app/icons/` let a phone install the app on its home screen.
-- `tests/` and `package.json` hold the tests of the app's functions: `node --test tests/app.test.mjs` (Node 22, no dependencies).
+- `tests/` and `package.json` hold the tests of the app's functions: `node --test tests/app.test.mjs` (Node 22, no dependencies). `tests/browser-check.mjs` opens every screen in headless Chrome on real data and saves screenshots; how to run it is at its top.
 - `CNAME` is written by GitHub for the domain.
 
 The app follows the approved design canvas "PeakToSwell App".
