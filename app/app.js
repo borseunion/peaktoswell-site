@@ -9,7 +9,7 @@
 //   data/status/<id>.json        lifts, slopes and snow of one resort (missing for some)
 //   data/forecast/<id>.json      seven days at three elevations
 
-export const VERSION = '0.2'; // shown on the About screen
+export const VERSION = '0.3'; // shown on the About screen
 export const DATA = 'data/';
 export const STALE_HOURS = 24; // the backend's own rule (publish.py, STALE_AFTER_HOURS)
 const HOUR = 3600 * 1000;
@@ -941,19 +941,25 @@ function start() {
     refreshBase();
     if (S.route.name === 'resort' && S.resorts) refreshResort(S.route.id);
   });
-  // Back on the network: everything on screen is asked for again.
-  window.addEventListener('online', () => {
+  /** Everything on screen, and the favourites, asked for once more. */
+  function askAgain() {
     if (!S.route) return;
     S.baseAt = 0;
     refreshBase();
     if (S.resorts && S.route.name === 'resort') refreshResort(S.route.id, true);
     if (S.resorts) refreshFavourites(true);
-  });
+  }
+  // Back on the network.
+  window.addEventListener('online', askAgain);
 
   // The service worker keeps the app and the data it has shown, for use without a connection.
   const local = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || local)) {
     navigator.serviceWorker.register('sw.js').catch((error) => console.warn('peaktoswell: offline use is not available:', error));
+    // On the very first visit the list was loaded before the worker took over, so it has kept
+    // nothing yet. When it takes over (then, and after every new version) the files are asked
+    // for again through it: one visit is enough to open the app without a connection.
+    navigator.serviceWorker.addEventListener('controllerchange', askAgain);
   }
 
   go();

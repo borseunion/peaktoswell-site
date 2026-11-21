@@ -146,8 +146,9 @@ if (want('5')) {
   console.log('service worker controls the page:', await p2.evaluate(() => navigator.serviceWorker.controller.scriptURL));
   const manifest = await p2.evaluate(() => fetch(document.querySelector('link[rel=manifest]').href).then((r) => r.json()));
   console.log('manifest:', manifest.name, manifest.display, manifest.icons.map((i) => i.sizes + (i.purpose === 'maskable' ? ' maskable' : '')).join(', '));
-  await p2.reload(); // from here on every data file passes through the service worker and is kept
-  await p2.waitForSelector('.row');
+  // No reload: one visit must be enough. The list was loaded before the worker took over and is asked for again through it.
+  await p2.waitForFunction(async () => Boolean(await (await caches.open('data-1')).match('/data/status/index.json')), null, { timeout: 15000 });
+  console.log('first visit: the list is kept on the device without a reload');
   await p2.getByRole('button', { name: 'Add Sölden to favourites', exact: true }).first().click();
   await p2.goto(`${base}#/resort/fr-val-thorens`);
   await p2.waitForSelector('.tile');
