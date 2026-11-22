@@ -83,7 +83,21 @@ await shot(page, '11-soelden-forecast-top', true);
 await page.getByRole('button', { name: /Base/ }).click();
 await shot(page, '12-soelden-forecast-base', true);
 await page.getByRole('link', { name: 'Satellite', exact: true }).click();
-await shot(page, '13-soelden-satellite');
+// Needs the backend's satellite files (backend 0.7.0); before them the tab says "No satellite image yet".
+const loaded = (selector) => page.waitForFunction((s) => { const i = document.querySelector(s); return i && i.complete && i.naturalWidth > 0; }, selector);
+await loaded('.sat-pic img');
+await shot(page, '13-soelden-satellite', true);
+console.log('satellite tab:', await page.locator('.sat-kv').innerText().then((t) => t.replace(/\n/g, ' ')), '|', await page.locator('.fine').allInnerTexts().then((t) => t.join(' | ')));
+await page.getByRole('link', { name: 'Open the satellite image full screen' }).click();
+await loaded('.viewer-stage img');
+await shot(page, '15-soelden-satellite-full');
+await page.getByRole('button', { name: 'Full size' }).click();
+await loaded('.viewer-stage img');
+await shot(page, '16-soelden-satellite-full-size');
+console.log('full size: the picture is', await page.locator('.viewer-stage img').evaluate((i) => `${i.clientWidth} px wide, scrolled to ${i.parentElement.scrollLeft},${i.parentElement.scrollTop}`));
+await page.getByRole('link', { name: 'Close the satellite image' }).click();
+await page.waitForSelector('.sat-pic');
+console.log('closed: back on', await page.evaluate(() => location.hash));
 await page.getByRole('link', { name: 'About', exact: true }).first().click();
 await shot(page, '14-soelden-about', true);
 
@@ -99,12 +113,15 @@ const states = [
   ['27-grindelwald-note', 'ch-grindelwald-wengen', ''],
   ['28-davos-nofile', 'ch-davos-klosters', ''],
   ['29-murren-forecast', 'ch-murren-schilthorn', '/forecast'],
+  ['34-yllas-satellite', 'fi-yllas', '/satellite'],
+  ['35-bansko-satellite', 'bg-bansko', '/satellite'],
+  ['36-mavrovo-satellite', 'mk-mavrovo', '/satellite'],
 ];
 for (const [name, id, tab] of states) {
   if (!want(name)) continue;
   await page.goto(`${base}#/resort/${id}${tab}`);
-  await page.waitForSelector(tab ? '.day, .note-card' : '.src, .cta, .note-card h2');
-  await page.waitForTimeout(250);
+  await page.waitForSelector(tab === '/satellite' ? '.sat-pic, .note-card' : tab ? '.day, .note-card' : '.src, .cta, .note-card h2');
+  await page.waitForTimeout(tab === '/satellite' ? 600 : 250);
   await shot(page, name, true);
 }
 
@@ -175,6 +192,16 @@ if (want('5')) {
   await p2.waitForFunction(() => document.querySelectorAll('.fav-stats div').length >= 3);
   console.log('offline, favourites:', await p2.locator('.fav-stats').first().innerText().then((t) => t.replace(/\n/g, ' ')));
   await shot(p2, '52-offline-favourites');
+  // The picture of a resort that was opened is on the device, though its Satellite tab never was.
+  await p2.goto(`${base}#/resort/fr-val-thorens/satellite`);
+  await p2.waitForFunction(() => { const i = document.querySelector('.sat-pic img'); return i && i.complete && i.naturalWidth > 0; });
+  console.log('offline, the picture of a resort opened before:', (await p2.locator('.banner-off').first().innerText()).trim(), '|', await p2.locator('.sat-kv').innerText().then((t) => t.replace(/\n/g, ' ')));
+  await shot(p2, '54-offline-satellite', true);
+  // A favourite that was never opened: its files are on the device, its picture is not.
+  await p2.goto(`${base}#/resort/at-soelden/satellite`);
+  await p2.waitForSelector('.sat');
+  console.log('offline, the picture of a resort never opened:', (await p2.locator('.sat').innerText()).replace(/\n/g, ' | '));
+  await shot(p2, '55-offline-satellite-never-loaded');
   await p2.goto(`${base}#/resort/at-ischgl-silvretta-arena`);
   await p2.waitForSelector('[data-retry]');
   console.log('offline, a resort never opened:', (await p2.locator('.note-card').last().innerText()).replace(/\n/g, ' | '));

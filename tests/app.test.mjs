@@ -282,6 +282,9 @@ test('addresses inside the app', () => {
   assert.deepEqual(app.parseRoute('#/resort/at-soelden'), { name: 'resort', id: 'at-soelden', tab: 'status' });
   assert.deepEqual(app.parseRoute('#/resort/at-soelden/forecast'), { name: 'resort', id: 'at-soelden', tab: 'forecast' });
   assert.deepEqual(app.parseRoute('#/resort/at-soelden/nonsense'), { name: 'resort', id: 'at-soelden', tab: 'status' });
+  assert.deepEqual(app.parseRoute('#/resort/at-soelden/satellite'), { name: 'resort', id: 'at-soelden', tab: 'satellite' });
+  assert.deepEqual(app.parseRoute('#/resort/at-soelden/satellite/full'), { name: 'resort', id: 'at-soelden', tab: 'satellite', full: true });
+  assert.deepEqual(app.parseRoute('#/resort/at-soelden/forecast/full'), { name: 'resort', id: 'at-soelden', tab: 'forecast' });
   assert.deepEqual(app.parseRoute('#/favourites'), { name: 'favourites' });
   assert.deepEqual(app.parseRoute('#/about'), { name: 'about' });
   assert.deepEqual(app.parseRoute('#/anything-else'), { name: 'resorts' });
@@ -324,6 +327,10 @@ test('the About screen names every source the app shows data from', () => {
   assert.match(html, /href="https:\/\/liftradar\.eu" target="_blank" rel="noopener"/);
   assert.match(html, /The ski score rates the weather only\./);
   assert.match(html, /an estimate from the forecast, not the resort’s decision/);
+  assert.match(html, /<b>Copernicus Sentinel-2<\/b>/);
+  assert.match(html, /Contains modified Copernicus Sentinel data\./);
+  assert.match(html, /a 7-day forecast at three elevations and a satellite image for 4 European ski resorts/);
+  assert.ok(!html.includes('satellite image, resort photos'), 'the satellite image no longer comes "with later builds"');
   assert.ok(html.includes(`${app.VERSION} · early build`));
 });
 
@@ -412,4 +419,117 @@ test('the main reason under a score below 80 (engine 0.2.3: limits)', () => {
   const html = app.forecastHtml({ ...FORECAST, levels: [{ key: 'top', elevation_m: 3000, days }] }, 'top');
   assert.ok(html.includes('<div class="day-why">In cloud</div>'));
   assert.equal(html.split('day-why').length - 1, 1, 'none under the 100');
+});
+
+// ---------------------------------------------------------------- the satellite picture
+
+const SATELLITE = {
+  schema: 1,
+  id: 'at-soelden',
+  generated_at: '2026-11-16T02:14:09Z',
+  image: { file: 'at-soelden.webp', taken_at: '2026-11-15T10:27:31Z', date: '2026-11-15', width: 1200, height: 1200, bytes: 178212, side_m: 12000, cloud: 0, cloud_shadow: 0, snow: 0.43, sun_elevation: 23.4, brightened: 1, scene: 'S2B_T32TPT_20261115T102731_L2A', tile: '32TPT', platform: 'sentinel-2b' },
+  newest_pass: '2026-11-15',
+  source: { label: 'Copernicus Sentinel-2', credit: 'Contains modified Copernicus Sentinel data 2026', url: 'https://dataspace.copernicus.eu', via: 'AWS Open Data' },
+};
+const SOELDEN_ROW = { id: 'at-soelden', name: 'Sölden', state: 'open', country_name: 'Austria', region: 'Tirol' };
+
+test('days between two dates', () => {
+  assert.equal(app.daysBetween('2026-11-15', '2026-11-21'), 6);
+  assert.equal(app.daysBetween('2026-12-30', '2027-01-02'), 3);
+  assert.equal(app.daysBetween('2026-03-28', '2026-03-30'), 2, 'the night the clocks change is a whole day too');
+  assert.equal(app.daysBetween('2026-11-21', '2026-11-15'), -6);
+  assert.equal(app.daysBetween('yesterday', '2026-11-15'), null);
+});
+
+test('the satellite picture: what the tab says', () => {
+  const view = app.satelliteView(SATELLITE, 'Sölden', NOW);
+  assert.equal(view.src, 'data/satellite/at-soelden.webp?d=20261115');
+  assert.equal(view.alt, 'Satellite image of Sölden, 15 Nov 2026');
+  assert.deepEqual([view.date, view.ago, view.note, view.low], ['15 Nov 2026', '6 days ago', '', false]);
+  assert.equal(view.frame, 'True colour · 12 km across · north up');
+  assert.equal(view.credit, 'Contains modified Copernicus Sentinel data 2026');
+  assert.deepEqual([view.width, view.height], [1200, 1200]);
+  assert.equal(app.satelliteView({ ...SATELLITE, image: { ...SATELLITE.image, date: '2026-11-21' } }, 'Sölden', NOW).ago, 'today');
+  assert.equal(app.satelliteView({ ...SATELLITE, image: { ...SATELLITE.image, date: '2026-11-20' } }, 'Sölden', NOW).ago, 'yesterday');
+  assert.equal(app.satelliteView({ ...SATELLITE, image: { ...SATELLITE.image, date: '2026-11-22' } }, 'Sölden', NOW).ago, '', 'a device whose clock is behind says nothing');
+  // The credit comes from the file; without one it is built from the picture's own year.
+  const lastYear = app.satelliteView({ ...SATELLITE, source: undefined, image: { ...SATELLITE.image, date: '2025-12-28' } }, 'Sölden', NOW);
+  assert.equal(lastYear.credit, 'Contains modified Copernicus Sentinel data 2025');
+});
+
+test('the satellite picture: why it is not newer', () => {
+  const cloudy = app.satelliteView({ ...SATELLITE, newest_pass: '2026-11-21' }, 'Sölden', NOW);
+  assert.equal(cloudy.note, 'Newer passes of the satellite, the last on 21 Nov, were not clear over the resort.');
+  // No pass at all for ten days and more: in the far north in midwinter the satellite does not record.
+  const yllas = { ...SATELLITE, newest_pass: '2026-11-05', image: { ...SATELLITE.image, file: 'fi-yllas.webp', date: '2026-11-05', sun_elevation: 6.3, brightened: 2.36 } };
+  const north = app.satelliteView(yllas, 'Ylläs', NOW);
+  assert.equal(north.ago, '16 days ago');
+  assert.equal(north.note, 'No pass since then: in midwinter the sun is too low this far north for the satellite to record.');
+  assert.equal(north.low, true);
+  // Ylläs as it was on 22.11.2026: the picture of the 5th, cloud on the 8th, and nothing after.
+  const both = app.satelliteView({ ...yllas, newest_pass: '2026-11-08' }, 'Ylläs', NOW);
+  assert.equal(both.note, 'Newer passes of the satellite, the last on 8 Nov, were not clear over the resort. No pass since then: in midwinter the sun is too low this far north for the satellite to record.');
+  const gap = app.satelliteView({ ...SATELLITE, newest_pass: '2026-11-08', image: { ...SATELLITE.image, date: '2026-11-08' } }, 'Sölden', NOW);
+  assert.equal(gap.note, 'No pass since then.');
+  const nine = app.satelliteView({ ...SATELLITE, newest_pass: '2026-11-12', image: { ...SATELLITE.image, date: '2026-11-08' } }, 'Sölden', NOW);
+  assert.equal(nine.note, 'Newer passes of the satellite, the last on 12 Nov, were not clear over the resort.', 'nine days without a pass say nothing yet');
+  assert.equal(app.satelliteView({ ...SATELLITE, newest_pass: '2026-11-01' }, 'Sölden', NOW).note, '', 'a newest pass before the picture says nothing');
+});
+
+test('the satellite picture: files without one, and names that are not file names', () => {
+  assert.equal(app.satelliteView(null, 'Sölden', NOW), null);
+  assert.equal(app.satelliteView({ ...SATELLITE, image: null }, 'Sölden', NOW), null);
+  assert.equal(app.satelliteView({ ...SATELLITE, image: { ...SATELLITE.image, date: 'soon' } }, 'Sölden', NOW), null);
+  for (const name of ['../index.html', 'https://example.org/x.webp', 'a.webp?x=1', 'a b.webp', 'x.png', 7]) {
+    assert.equal(app.satelliteView({ ...SATELLITE, image: { ...SATELLITE.image, file: name } }, 'Sölden', NOW), null, String(name));
+  }
+});
+
+test('the Satellite tab', () => {
+  const html = app.satelliteHtml(SOELDEN_ROW, SATELLITE, NOW);
+  assert.match(html, /^<a class="sat-pic" href="#\/resort\/at-soelden\/satellite\/full" aria-label="Open the satellite image full screen">/);
+  assert.match(html, /<img src="data\/satellite\/at-soelden\.webp\?d=20261115" alt="Satellite image of Sölden, 15 Nov 2026" width="1200" height="1200"/);
+  assert.match(html, /<span>Image taken<\/span><span class="v">15 Nov 2026 · 6 days ago<\/span>/);
+  assert.match(html, /<div class="fine">True colour · 12 km across · north up\. Contains modified Copernicus Sentinel data 2026\.<\/div>$/);
+  assert.equal((html.match(/class="fine"/g) || []).length, 1, 'no second line when there is nothing to explain');
+  const cloudy = app.satelliteHtml(SOELDEN_ROW, { ...SATELLITE, newest_pass: '2026-11-21' }, NOW);
+  assert.match(cloudy, /<div class="fine">Newer passes of the satellite, the last on 21 Nov, were not clear over the resort\.<\/div>/);
+  const low = app.satelliteHtml(SOELDEN_ROW, { ...SATELLITE, image: { ...SATELLITE.image, brightened: 2.36 } }, NOW);
+  assert.match(low, /north up\. Taken with the sun low over the horizon and brightened\. Contains modified/);
+  // No picture yet: the backend has no file for the resort, or the file says that no pass was clear.
+  assert.match(app.satelliteHtml(SOELDEN_ROW, null, NOW), /<h2>No satellite image yet<\/h2>/);
+  assert.match(app.satelliteHtml(SOELDEN_ROW, { ...SATELLITE, image: null, newest_pass: '2026-11-08' }, NOW), /<h2>No clear image yet<\/h2>/);
+  assert.match(app.satelliteHtml(SOELDEN_ROW, { ...SATELLITE, image: null, newest_pass: null }, NOW), /<h2>No satellite image yet<\/h2>/);
+  // Text from the file is escaped.
+  const odd = app.satelliteHtml({ ...SOELDEN_ROW, name: 'A "B" <C>' }, { ...SATELLITE, source: { credit: '<b>x</b>' } }, NOW);
+  assert.ok(odd.includes('alt="Satellite image of A &quot;B&quot; &lt;C&gt;, 15 Nov 2026"'));
+  assert.ok(odd.includes('&lt;b&gt;x&lt;/b&gt;.'));
+});
+
+test('the Satellite tab inside the resort screen: loading, and offline', () => {
+  const loading = app.resortHtml(SOELDEN_ROW, 'satellite', SOELDEN, FORECAST, false, 'top', '<p>Loading…</p>', {}, undefined);
+  assert.match(loading, /id="tab"><p>Loading…<\/p>/);
+  const shown = app.resortHtml(SOELDEN_ROW, 'satellite', SOELDEN, FORECAST, false, 'top', '', {}, SATELLITE);
+  assert.match(shown, /id="tab"><a class="sat-pic"/);
+  const none = app.resortHtml(SOELDEN_ROW, 'satellite', SOELDEN, FORECAST, false, 'top', '', {}, null);
+  assert.match(none, /No satellite image yet/);
+  const offline = app.resortHtml(SOELDEN_ROW, 'satellite', SOELDEN, FORECAST, false, 'top', '', { status: null, forecast: null, satellite: '2026-11-21T13:40:00Z' }, SATELLITE);
+  assert.match(offline, /id="tab"><div class="banner banner-off">.*Offline · showing data saved 21 Nov.*<a class="sat-pic"/s);
+  const elsewhere = app.resortHtml(SOELDEN_ROW, 'status', SOELDEN, FORECAST, false, 'top', '', { status: null, forecast: null, satellite: '2026-11-21T13:40:00Z' }, SATELLITE);
+  assert.ok(!elsewhere.includes('banner-off'), 'the Status tab does not speak for the satellite file');
+  assert.match(app.SAT_MISSING, /has not been loaded on this device yet/);
+});
+
+test('the satellite picture on the whole screen', () => {
+  const fitted = app.viewerHtml(SOELDEN_ROW, SATELLITE, false, NOW);
+  assert.match(fitted, /<a class="viewer-btn" href="#\/resort\/at-soelden\/satellite" data-close aria-label="Close the satellite image">/);
+  assert.match(fitted, /<b>Sölden<\/b><span>Satellite image · 15 Nov 2026<\/span>/);
+  assert.match(fitted, /<button type="button" class="viewer-btn" data-zoom aria-pressed="false">Full size<\/button>/);
+  assert.match(fitted, /<div class="viewer-stage" id="stage"><img src="data\/satellite\/at-soelden\.webp\?d=20261115"/);
+  assert.match(fitted, /Contains modified Copernicus Sentinel data 2026\./, 'the credit stays with the picture');
+  const zoomed = app.viewerHtml(SOELDEN_ROW, SATELLITE, true, NOW);
+  assert.match(zoomed, /aria-pressed="true">Fit<\/button>/);
+  assert.match(zoomed, /<div class="viewer-stage zoomed" id="stage">/);
+  assert.match(zoomed, /Drag to move/);
+  assert.equal(app.viewerHtml(SOELDEN_ROW, { ...SATELLITE, image: null }, false, NOW), '');
 });

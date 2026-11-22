@@ -17,4 +17,4 @@ Raise the version number in three places together: `?v=` on the two lines of `in
 
 ## Credits
 
-Font: Manrope, under the SIL Open Font License 1.1 (`app/fonts/OFL.txt`). Weather data by Open-Meteo.com (CC BY 4.0). Lift, slope and snow status from the resorts' own reports, many of them through LiftRadar.
+Font: Manrope, under the SIL Open Font License 1.1 (`app/fonts/OFL.txt`). Weather data by Open-Meteo.com (CC BY 4.0). Satellite images: contains modified Copernicus Sentinel data. Lift, slope and snow status from the resorts' own reports, many of them through LiftRadar.

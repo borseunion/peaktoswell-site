@@ -3,13 +3,15 @@
 // The functions in the first half are pure (text in, text out) and are exported for the
 // tests in tests/app.test.mjs. The second half touches the page and runs only in a browser.
 //
-// The app reads four kinds of files, all written by the backend into data/:
+// The app reads these files, all written by the backend into data/:
 //   data/resorts.json            the 130 resorts (name, country, elevations, season dates)
 //   data/status/index.json       one row per resort for the list
 //   data/status/<id>.json        lifts, slopes and snow of one resort (missing for some)
 //   data/forecast/<id>.json      seven days at three elevations
+//   data/satellite/<id>.json     when the resort's satellite picture was taken, and its credit
+//   data/satellite/<id>.webp     the picture
 
-export const VERSION = '0.5'; // shown on the About screen
+export const VERSION = '0.6'; // shown on the About screen
 export const DATA = 'data/';
 export const STALE_HOURS = 24; // the backend's own rule (publish.py, STALE_AFTER_HOURS)
 const HOUR = 3600 * 1000;
@@ -411,6 +413,52 @@ export function levelView(forecast, key, openedBefore = null) {
 
 // ---------------------------------------------------------------- pieces of HTML
 
+// ---------------------------------------------------------------- the satellite picture
+
+const DAY = 24 * HOUR;
+const NO_PASS_DAYS = 10; // the satellites pass every two or three days: this long without one is not the weather
+const LOW_SUN = 12; // degrees above the horizon in the picture: with no newer pass, the reason is midwinter in the north
+
+/** Whole days from one 'YYYY-MM-DD' to another; null when either is not a date. */
+export function daysBetween(from, to) {
+  const a = ymd(from);
+  const b = ymd(to);
+  return a && b ? Math.round((Date.UTC(b[0], b[1] - 1, b[2]) - Date.UTC(a[0], a[1] - 1, a[2])) / DAY) : null;
+}
+
+/** What the Satellite tab shows for a resort's file (data/satellite/<id>.json); null when it holds no picture. */
+export function satelliteView(sat, name, now = new Date()) {
+  const image = sat && sat.image;
+  if (!image || typeof image.file !== 'string' || !/^[a-z0-9-]+\.webp$/.test(image.file) || !ymd(image.date)) return null;
+  const age = daysBetween(image.date, today(now));
+  const ago = age === null || age < 0 ? '' : age === 0 ? 'today' : age === 1 ? 'yesterday' : `${age} days ago`;
+  const date = fmtDate(image.date, 'always');
+  const newest = ymd(sat.newest_pass) && sat.newest_pass > image.date ? sat.newest_pass : '';
+  const notes = [];
+  if (newest) notes.push(`Newer passes of the satellite, the last on ${fmtDate(newest, 'auto', now)}, were not clear over the resort.`);
+  const quiet = daysBetween(newest || image.date, today(now)); // days since the satellite last passed at all
+  if (quiet !== null && quiet >= NO_PASS_DAYS) {
+    const why = isNumber(image.sun_elevation) && image.sun_elevation < LOW_SUN ? ': in midwinter the sun is too low this far north for the satellite to record' : '';
+    notes.push(`No pass since then${why}.`);
+  }
+  const note = notes.join(' ');
+  const across = isNumber(image.side_m) ? `${num(image.side_m / 1000)} km across` : '';
+  const credit = sat.source && typeof sat.source.credit === 'string' && sat.source.credit ? sat.source.credit : `Contains modified Copernicus Sentinel data ${image.date.slice(0, 4)}`;
+  return {
+    // The day in the address makes a browser fetch a newer picture at once; the service worker keeps it under the path alone.
+    src: `${DATA}satellite/${image.file}?d=${image.date.replace(/-/g, '')}`,
+    alt: `Satellite image of ${name}, ${date}`,
+    date,
+    ago,
+    note,
+    frame: ['True colour', across, 'north up'].filter(Boolean).join(' · '),
+    low: isNumber(image.brightened) && image.brightened > 1,
+    credit: credit.replace(/\.$/, ''),
+    width: isNumber(image.width) ? image.width : 1200,
+    height: isNumber(image.height) ? image.height : 1200,
+  };
+}
+
 const icon = (body, size = 22, extra = '') => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra}>${body}</svg>`;
 const ICON = {
   search: icon('<circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path>', 20),
@@ -420,6 +468,8 @@ const ICON = {
   next: icon('<path d="M9 5l7 7-7 7"></path>', 14),
   go: icon('<path d="M9 5l7 7-7 7"></path>', 16),
   clock: icon('<circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path>', 18),
+  expand: icon('<path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"></path>', 18),
+  close: icon('<path d="M6 6l12 12M18 6 6 18"></path>', 20),
   offline: icon('<path d="M3 3l18 18M5 12.5a10 10 0 0 1 3.5-2.3M2 8.8a15 15 0 0 1 4-2.5M12 5a15 15 0 0 1 10 3.8M15.5 10.4a10 10 0 0 1 3.5 2.1M8.5 16a5 5 0 0 1 7 0M12 19.5v.5"></path>', 18),
   navResorts: '<svg class="solid" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 19 9 8l4 6 3-4 5 9z"></path></svg>',
   navFavs: '<svg class="solid" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.9L12 16.9 6.8 19.7l1-5.9L3.5 9.7l5.9-.8z"></path></svg>',
@@ -630,10 +680,32 @@ export function aboutTabHtml(row, status) {
   return parts.join('');
 }
 
-const satelliteHtml = () =>
-  '<div class="sat" role="img" aria-label="The satellite image is not available yet"><b>Satellite image</b><span>The latest clear Sentinel-2 image of the resort, with its date, comes with a later build.</span></div>';
+/** The Satellite tab. sat is the resort's file, or null when the backend has none for it. */
+export function satelliteHtml(row, sat, now = new Date()) {
+  const view = satelliteView(sat, row.name, now);
+  if (!view) {
+    if (sat && ymd(sat.newest_pass)) return noteCard('No clear image yet', 'No pass of the satellite in the last four months was clear over this resort. New passes are checked every night.');
+    return noteCard('No satellite image yet', 'The image of this resort has not been made yet. New passes of the satellite are checked every night.');
+  }
+  const picture = `<a class="sat-pic" href="#/resort/${esc(row.id)}/satellite/full" aria-label="Open the satellite image full screen"><img src="${esc(view.src)}" alt="${esc(view.alt)}" width="${esc(view.width)}" height="${esc(view.height)}" decoding="async" data-sat><span class="sat-open">${ICON.expand}</span></a>`;
+  const taken = `<div class="kv sat-kv"><span>Image taken</span><span class="v">${esc(view.date)}${view.ago ? ` · ${esc(view.ago)}` : ''}</span></div>`;
+  const note = view.note ? `<div class="fine">${esc(view.note)}</div>` : '';
+  return `${picture}${taken}${note}<div class="fine">${esc(view.frame)}.${view.low ? ' Taken with the sun low over the horizon and brightened.' : ''} ${esc(view.credit)}.</div>`;
+}
 
-export function resortHtml(row, tab, status, forecast, isFav, level, loading, saved = {}) {
+/** Shown in place of a picture that could not be loaded: no connection, and the device has not kept it. */
+export const SAT_MISSING =
+  '<div class="sat" role="img" aria-label="The satellite image could not be loaded"><b>The image could not be loaded</b><span>Without a connection the app shows the image it last loaded for this resort. This one has not been loaded on this device yet.</span></div>';
+
+/** The picture on the whole screen: fitted to it, or at full size to drag around. */
+export function viewerHtml(row, sat, zoomed, now = new Date()) {
+  const view = satelliteView(sat, row.name, now);
+  if (!view) return '';
+  const hint = zoomed ? 'Drag to move · 10 m a pixel' : 'Pinch to zoom, or tap Full size';
+  return `<div class="viewer"><div class="viewer-top"><a class="viewer-btn" href="#/resort/${esc(row.id)}/satellite" data-close aria-label="Close the satellite image">${ICON.close}</a><div class="viewer-title"><b>${esc(row.name)}</b><span>Satellite image · ${esc(view.date)}</span></div><button type="button" class="viewer-btn" data-zoom aria-pressed="${zoomed ? 'true' : 'false'}">${zoomed ? 'Fit' : 'Full size'}</button></div><div class="viewer-stage${zoomed ? ' zoomed' : ''}" id="stage"><img src="${esc(view.src)}" alt="${esc(view.alt)}" width="${esc(view.width)}" height="${esc(view.height)}" data-sat></div><div class="viewer-foot"><b>${hint}</b><span>${esc(view.frame)}. ${esc(view.credit)}.</span></div></div>`;
+}
+
+export function resortHtml(row, tab, status, forecast, isFav, level, loading, saved = {}, satellite = undefined) {
   const season = (status && status.season) || { opens: row.season_opens, ends: row.season_ends };
   const line = seasonText(row.state, season, '');
   const lineHtml = line.lead || line.text ? `<div class="season">${line.lead ? `<span class="lead">${esc(line.lead)}</span>${line.text ? ' · ' : ''}` : ''}${esc(line.text)}</div>` : '';
@@ -645,10 +717,10 @@ export function resortHtml(row, tab, status, forecast, isFav, level, loading, sa
   const openedBefore = running && season.opens ? season.opens : null;
   let body;
   if (tab === 'forecast') body = forecast === undefined ? loading : forecastHtml(forecast, level, Date.now(), openedBefore);
-  else if (tab === 'satellite') body = satelliteHtml();
+  else if (tab === 'satellite') body = satellite === undefined ? loading : satelliteHtml(row, satellite);
   else if (tab === 'about') body = status === undefined ? loading : aboutTabHtml(row, status);
   else body = status === undefined ? loading : statusHtml(row, status);
-  if (tab !== 'satellite') body = offlineBanner(tab === 'forecast' ? saved.forecast : saved.status) + body;
+  body = offlineBanner(tab === 'forecast' ? saved.forecast : tab === 'satellite' ? saved.satellite : saved.status) + body;
   return `<header class="band"><img src="app/img/slope.jpg" alt=""><div class="band-top"><a class="round" href="#/" data-back aria-label="Back to resorts">${ICON.back}</a>${starHtml(row, isFav, true)}</div></header>
 <main><div class="head"><h1>${esc(row.name)}</h1><div class="head-meta">${chipHtml(row.state)}${old}<span class="place">${esc(place)}</span></div>${lineHtml}</div><div class="tabs" role="navigation" aria-label="Resort">${tabs}</div><div class="body" id="tab">${body}</div></main>${navHtml('resorts')}`;
 }
@@ -697,10 +769,11 @@ export function aboutHtml(rows) {
     entry('LiftRadar', 'https://liftradar.eu', 'liftradar.eu', `Lift and slope status for ${viaLiftRadar} resorts.`, 'Each resort page links to the report it came from.'),
     entry('Resort websites', '#/', 'See resorts', 'Status read from the resort’s own page where LiftRadar has none.', 'The source is named and linked on every resort page.'),
     entry('Open-Meteo', 'https://open-meteo.com', 'open-meteo.com', 'Weather model data for the forecast.', 'Weather data by Open-Meteo.com, CC BY 4.0.'),
+    entry('Copernicus Sentinel-2', 'https://dataspace.copernicus.eu', 'copernicus.eu', 'The satellite image of each resort: the newest clear one.', 'Contains modified Copernicus Sentinel data.'),
   ];
   const reading = `<div class="panel note-card"><p>The ski score rates the weather only. It does not say whether the lifts run or how much snow lies on the slopes. Under 80, the main reason is named: in cloud, very cold, strong wind, heavy snowfall.</p><p>The chance that lifts stop is an estimate from the forecast, not the resort’s decision.</p></div>`;
   const fact = (key, value) => `<div class="kv fact"><span>${key}</span><span class="v">${esc(value)}</span></div>`;
-  return `<div class="topline"><div class="brand">PEAKTOSWELL</div><span></span></div><main class="screen"><h1>About &amp; data sources</h1><p class="lead">Live lift and slope status and a 7-day forecast at three elevations for ${rows.length} European ski resorts. Free, no ads, no accounts.</p><div class="sec"><h2>Data sources</h2><span></span></div>${cardOf(sources)}<div class="sec"><h2>How to read it</h2><span></span></div>${reading}<div class="panel">${fact('Publisher', 'Boris Zarev')}${fact('Version', `${VERSION} · early build`)}</div><div class="fine">The satellite image, resort photos and ski maps come with later builds.</div></main>${navHtml('about')}`;
+  return `<div class="topline"><div class="brand">PEAKTOSWELL</div><span></span></div><main class="screen"><h1>About &amp; data sources</h1><p class="lead">Live lift and slope status, a 7-day forecast at three elevations and a satellite image for ${rows.length} European ski resorts. Free, no ads, no accounts.</p><div class="sec"><h2>Data sources</h2><span></span></div>${cardOf(sources)}<div class="sec"><h2>How to read it</h2><span></span></div>${reading}<div class="panel">${fact('Publisher', 'Boris Zarev')}${fact('Version', `${VERSION} · early build`)}</div><div class="fine">Resort photos and ski maps come with later builds.</div></main>${navHtml('about')}`;
 }
 
 export function plainHtml(active, title, cards) {
@@ -712,7 +785,9 @@ export function parseRoute(hash) {
   const parts = String(hash || '').replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'resort' && parts[1]) {
     const tab = ['status', 'forecast', 'satellite', 'about'].includes(parts[2]) ? parts[2] : 'status';
-    return { name: 'resort', id: decodeURIComponent(parts[1]), tab };
+    const route = { name: 'resort', id: decodeURIComponent(parts[1]), tab };
+    if (tab === 'satellite' && parts[3] === 'full') route.full = true; // the picture on the whole screen
+    return route;
   }
   if (parts[0] === 'favourites') return { name: 'favourites' };
   if (parts[0] === 'about') return { name: 'about' };
@@ -765,6 +840,10 @@ function start() {
     baseError: false,
     status: new Map(), // id -> {at, data, saved}; data is null when the resort has no file
     forecast: new Map(),
+    satellite: new Map(),
+    warmed: new Set(), // ids whose satellite picture has been asked for, so that the device keeps it
+    zoomed: false, // the full-screen picture: at full size instead of fitted
+    viewer: '', // the full-screen picture as it is on screen
     failed: new Set(), // ids whose files could not be loaded
     favs: readFavourites(),
     query: '',
@@ -809,6 +888,7 @@ function start() {
     if (!hasFile) S.status.set(id, { at: Date.now(), data: null, saved: null });
     else if (force || !fresh(S.status.get(id))) jobs.push(getJson(`status/${encodeURIComponent(id)}.json`).then(keep(S.status)));
     if (force || !fresh(S.forecast.get(id))) jobs.push(getJson(`forecast/${encodeURIComponent(id)}.json`).then(keep(S.forecast)));
+    if (force || !fresh(S.satellite.get(id))) jobs.push(getJson(`satellite/${encodeURIComponent(id)}.json`).then(keep(S.satellite)));
     if (!jobs.length) return false;
     const results = await Promise.allSettled(jobs);
     const failures = results.filter((result) => result.status === 'rejected');
@@ -832,12 +912,23 @@ function start() {
     }
     const status = S.status.get(row.id);
     const forecast = S.forecast.get(row.id);
+    const satellite = S.satellite.get(row.id);
     const waiting = S.failed.has(row.id) ? failedCard(row.id) : LOADING;
+    const whole = route.full && satellite ? viewerHtml(row, satellite.data, S.zoomed) : '';
+    if (whole && whole === S.viewer && root.querySelector('.viewer')) return; // already on screen: a redraw would lose the place
+    S.viewer = whole;
+    if (whole) {
+      root.innerHTML = whole;
+      document.title = `${row.name} · satellite image · peaktoswell`;
+      const stage = document.getElementById('stage');
+      if (stage && S.zoomed) stage.scrollTo((stage.scrollWidth - stage.clientWidth) / 2, (stage.scrollHeight - stage.clientHeight) / 2);
+      return;
+    }
     // The resort's own file is newer than the list's row whenever the two differ.
     const own = status && status.data;
     const live = own ? { ...row, state: own.state, reason: own.reason ?? null, checked_at: own.checked_at ?? null, stale: isStale(own) } : row;
-    const saved = { status: (status && status.saved) || (!own && S.baseSaved) || null, forecast: (forecast && forecast.saved) || null };
-    root.innerHTML = resortHtml(live, route.tab, status ? status.data : undefined, forecast ? forecast.data : undefined, S.favs.has(row.id), S.level, waiting, saved);
+    const saved = { status: (status && status.saved) || (!own && S.baseSaved) || null, forecast: (forecast && forecast.saved) || null, satellite: (satellite && satellite.saved) || null };
+    root.innerHTML = resortHtml(live, route.tab, status ? status.data : undefined, forecast ? forecast.data : undefined, S.favs.has(row.id), S.level, waiting, saved, satellite ? satellite.data : undefined);
     document.title = `${row.name} · peaktoswell`;
     if (!keepScroll) window.scrollTo(0, 0);
   }
@@ -877,9 +968,20 @@ function start() {
     if (!keepScroll) window.scrollTo(0, 0);
   }
 
+  /** A resort that has been opened is to be seen without a connection too, picture included: ask for it once, quietly. */
+  function keepPicture(id) {
+    const entry = S.satellite.get(id);
+    const row = rowOf(id);
+    const view = entry && row ? satelliteView(entry.data, row.name) : null;
+    if (!view || S.warmed.has(view.src) || entry.saved || (navigator.connection && navigator.connection.saveData)) return;
+    S.warmed.add(view.src);
+    fetch(view.src).catch(() => S.warmed.delete(view.src));
+  }
+
   async function refreshResort(id, force = false) {
     const changed = await loadResort(id, force);
     if (changed && S.route.name === 'resort' && S.route.id === id) draw(true);
+    keepPicture(id);
   }
 
   /** The favourites' own files: asked for at every start, so that they are on the device without a connection too. */
@@ -908,7 +1010,8 @@ function start() {
     const sameResort = S.route && S.route.name === 'resort' && next.name === 'resort' && S.route.id === next.id;
     S.previous = S.route;
     S.route = next;
-    draw(sameResort);
+    S.zoomed = false;
+    draw(sameResort && !next.full && !(S.previous && S.previous.full));
     if (S.resorts && next.name === 'resort') refreshResort(next.id);
     if (S.resorts && next.name === 'favourites') refreshFavourites();
     refreshBase();
@@ -932,6 +1035,18 @@ function start() {
       draw(true);
       return;
     }
+    if (event.target.closest('[data-zoom]')) {
+      S.zoomed = !S.zoomed;
+      draw(true);
+      return;
+    }
+    // Closing the picture goes back to the tab it was opened from, so that the phone's own back button does not open it again.
+    const close = event.target.closest('[data-close]');
+    if (close && S.previous && S.previous.name === 'resort' && S.previous.id === S.route.id && S.previous.tab === 'satellite' && !S.previous.full) {
+      event.preventDefault();
+      history.back();
+      return;
+    }
     const back = event.target.closest('[data-back]');
     if (back && S.previous && S.previous.name === 'resorts') {
       event.preventDefault();
@@ -953,6 +1068,18 @@ function start() {
       }
     }
   });
+
+  // A picture that cannot be loaded (no connection, and never kept on this device) gives way to a few words.
+  root.addEventListener(
+    'error',
+    (event) => {
+      const image = event.target;
+      if (!(image instanceof HTMLImageElement) || !image.hasAttribute('data-sat')) return;
+      const holder = image.closest('.sat-pic') || image.closest('.viewer-stage');
+      if (holder) holder.outerHTML = SAT_MISSING;
+    },
+    true,
+  );
 
   root.addEventListener('input', (event) => {
     if (event.target && event.target.id === 'q') {
