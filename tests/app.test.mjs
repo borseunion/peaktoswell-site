@@ -287,6 +287,9 @@ test('addresses inside the app', () => {
   assert.deepEqual(app.parseRoute('#/resort/at-soelden/forecast/full'), { name: 'resort', id: 'at-soelden', tab: 'forecast' });
   assert.deepEqual(app.parseRoute('#/favourites'), { name: 'favourites' });
   assert.deepEqual(app.parseRoute('#/about'), { name: 'about' });
+  assert.deepEqual(app.parseRoute('#/resort/fr-val-thorens/avalanche'), { name: 'avalanche', id: 'fr-val-thorens' });
+  assert.deepEqual(app.parseRoute('#/about/avalanche'), { name: 'about', page: 'avalanche' });
+  assert.deepEqual(app.parseRoute('#/about/else'), { name: 'about' });
   assert.deepEqual(app.parseRoute('#/anything-else'), { name: 'resorts' });
 });
 
@@ -322,14 +325,16 @@ test('the Favourites screen', () => {
 
 test('the About screen names every source the app shows data from', () => {
   const html = app.aboutHtml(app.joinRows(RESORTS, INDEX, NOW.getTime()));
-  assert.match(html, /Lift and slope status for 2 resorts\./);
+  assert.match(html, /Lift and slope status for 2 resorts, and the avalanche bulletins it collects\./);
+  assert.match(html, /<b>Avalanche warning services<\/b>.*SLF in Switzerland, Météo-France, AINEVA in Italy/s);
+  assert.match(html, /<a class="entry entry-link" href="#\/about\/avalanche"><div class="entry-top"><b>Avalanche information\*<\/b>/);
   assert.match(html, /Weather data by Open-Meteo\.com, CC BY 4\.0\./);
   assert.match(html, /href="https:\/\/liftradar\.eu" target="_blank" rel="noopener"/);
   assert.match(html, /The ski score rates the weather only\./);
   assert.match(html, /an estimate from the forecast, not the resort’s decision/);
   assert.match(html, /<b>Copernicus Sentinel-2<\/b>/);
   assert.match(html, /Contains modified Copernicus Sentinel data\./);
-  assert.match(html, /a 7-day forecast at three elevations and a satellite image for 4 European ski resorts/);
+  assert.match(html, /a 7-day forecast at three elevations, a satellite image and the official avalanche danger for 4 European ski resorts/);
   assert.ok(!html.includes('satellite image, resort photos'), 'the satellite image no longer comes "with later builds"');
   assert.ok(html.includes(`${app.VERSION} · early build`));
 });
@@ -532,4 +537,309 @@ test('the satellite picture on the whole screen', () => {
   assert.match(zoomed, /<div class="viewer-stage zoomed" id="stage">/);
   assert.match(zoomed, /Drag to move/);
   assert.equal(app.viewerHtml(SOELDEN_ROW, { ...SATELLITE, image: null }, false, NOW), '');
+});
+
+
+// ---------------------------------------------------------------- avalanche danger (0.7)
+
+const AT = new Date(2026, 10, 24, 10, 0, 0); // 24 Nov 2026, 10:00 on the device's clock
+const local = (y, m, d, h = 12) => new Date(y, m - 1, d, h, 0, 0).toISOString();
+const RATING = (level, lower = null, upper = null, period = 'all_day') => ({ level, name: ['', 'low', 'moderate', 'considerable', 'high', 'very_high'][level], lower_bound: lower, upper_bound: upper, period });
+const BULLETIN = (level, ratings, extra = {}) => ({
+  schema: 1, id: 'fr-val-thorens', level, ratings, problems: [], region: 'Vanoise', region_id: 'FR-10',
+  issued_at: local(2026, 11, 23, 16), valid_from: local(2026, 11, 23, 16), valid_until: local(2026, 11, 24, 18),
+  service: { name: 'Météo-France', url: 'https://meteofrance.com/meteo-montagne' },
+  source: { kind: 'liftradar', label: 'LiftRadar', url: 'https://liftradar.eu/resort?r=fr/val-thorens', checked_at: local(2026, 11, 24, 8) },
+  ...extra,
+});
+// Val Thorens as LiftRadar carried it on 23 Nov 2026: split by elevation and by the time of day.
+const VAL_THORENS = BULLETIN(4, [RATING(3, null, 2800, 'later'), RATING(4, 2800, null, 'earlier'), RATING(3, 2800, null, 'later')]);
+const VT_ROW = { id: 'fr-val-thorens', name: 'Val Thorens', state: 'open', country_name: 'France', region: 'Savoie', avalanche: { level: 4, valid_until: VAL_THORENS.valid_until } };
+const SNOW_70 = [{ elevation_m: 3200, snow_cm: 70, snow_72h_cm: 70, reported: true }];
+const WIND = [{ elevation_m: 3195, wind_kmh: 43, from_deg: 160, snow_72h_cm: 70 }, { elevation_m: 2800, wind_kmh: 39, from_deg: 152, snow_72h_cm: 64 }];
+const SETTLING = { key: 'new_snow_settling', after: 'heavy_snowfall', since: '2026-11-23', levels: SNOW_70 };
+const DRIFTED = { key: 'drifted_snow', after: 'wind_loading', since: '2026-11-25', lee: ['N', 'NW'], levels: WIND };
+const SIGNS = {
+  schema: 1, record_days: 3,
+  days: [
+    { date: '2026-11-23', signs: [{ key: 'heavy_snowfall', strength: 'strong', levels: SNOW_70 }] }, // before today: not shown
+    { date: '2026-11-24', signs: [SETTLING] },
+    { date: '2026-11-25', signs: [{ key: 'wind_loading', strength: 'strong', lee: ['N', 'NW'], levels: WIND }, SETTLING] },
+    { date: '2026-11-26', signs: [DRIFTED, SETTLING] },
+    { date: '2026-11-27', signs: [DRIFTED, SETTLING] },
+    { date: '2026-11-28', signs: [DRIFTED, { key: 'a_sign_of_a_later_version', levels: [] }] },
+  ],
+};
+const VT_DAYS = ['2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27', '2026-11-28', '2026-11-29', '2026-11-30'].map((date) => DAY(date, 90));
+const VT_FORECAST = { generated_at: AT.toISOString(), timezone: 'Europe/Paris', models: ['ECMWF IFS'], levels: [{ key: 'top', elevation_m: 3195, days: VT_DAYS }], avalanche_signs: SIGNS };
+
+test('the official bulletin: the highest level leads, split by elevation and by the time of day', () => {
+  const view = app.bulletinView(VAL_THORENS, AT.getTime());
+  assert.equal(view.level, 4);
+  assert.equal(view.word, 'High');
+  assert.equal(view.where, 'above 2800 m earlier in the day');
+  assert.deepEqual(view.others, [{ level: 3, word: 'Considerable', text: 'later in the day' }], 'below and above 2800 m later in the day: every elevation');
+  assert.deepEqual(view.groups, [
+    { title: 'Earlier in the day', rows: [{ level: 4, word: 'High', where: 'above 2800 m' }] },
+    { title: 'Later in the day', rows: [{ level: 3, word: 'Considerable', where: 'at all elevations' }] },
+  ]);
+  assert.equal(view.outOfDate, false);
+  assert.equal(view.meta, 'Météo-France · Vanoise · issued 23 Nov, 16:00 · valid until 24 Nov, 18:00');
+  assert.deepEqual(view.service, { name: 'Météo-France', url: 'https://meteofrance.com/meteo-montagne' });
+
+  const avoriaz = app.bulletinView(BULLETIN(3, [RATING(2, null, 2000), RATING(3, 2000, null)]), AT.getTime());
+  assert.equal(avoriaz.where, 'above 2000 m');
+  assert.deepEqual(avoriaz.others, [{ level: 2, word: 'Moderate', text: 'below 2000 m' }]);
+  assert.deepEqual(avoriaz.groups, [{ title: '', rows: [{ level: 3, word: 'Considerable', where: 'above 2000 m' }, { level: 2, word: 'Moderate', where: 'below 2000 m' }] }]);
+
+  const whole = app.bulletinView(BULLETIN(4, [RATING(4)], { problems: ['new_snow', 'persistent_weak_layers', 'something_new'] }), AT.getTime());
+  assert.equal(whole.where, '');
+  assert.deepEqual(whole.others, []);
+  assert.deepEqual(whole.problems, ['New snow', 'Persistent weak layers', 'Something new']);
+  assert.equal(app.boundText('treeline', null), 'above the treeline');
+  assert.equal(app.boundText(1800, 2400), 'between 1800 m and 2400 m');
+  assert.equal(app.bulletinView(null), null);
+});
+
+test('the official level is never shown lower than the file holds', () => {
+  // the source's own figure for the day is above every rating row: the higher one stands
+  const higher = app.bulletinView(BULLETIN(4, [RATING(3)]), AT.getTime());
+  assert.equal(higher.level, 4);
+  assert.equal(higher.where, '', 'nothing is said about where: the rows do not tell');
+  assert.deepEqual(higher.others, [{ level: 3, word: 'Considerable', text: '' }]);
+  // and the other way round
+  assert.equal(app.bulletinView(BULLETIN(2, [RATING(2, null, 1800), RATING(4, 1800, null)]), AT.getTime()).level, 4);
+  // the short form of the list's row is enough for the level
+  const short = app.bulletinView({ level: 3, valid_until: local(2026, 11, 24, 18) }, AT.getTime());
+  assert.equal(short.level, 3);
+  assert.equal(short.word, 'Considerable');
+  // a level that is no level is no level, not a low one
+  for (const odd of [0, 6, 2.5, '3', null, undefined]) assert.equal(app.bulletinView({ level: odd, valid_until: local(2026, 11, 24, 18) }, AT.getTime()).level, null);
+});
+
+test('a bulletin past its validity keeps its level and is marked out of date', () => {
+  const late = new Date(2026, 10, 24, 19, 0, 0).getTime();
+  const view = app.bulletinView(VAL_THORENS, late);
+  assert.equal(view.level, 4);
+  assert.equal(view.outOfDate, true);
+  assert.equal(view.stamp, 'Bulletin of 23 Nov · out of date');
+  const card = app.avalancheCardHtml(VT_ROW, { bulletin: VAL_THORENS, collected: true }, null, new Date(late));
+  assert.match(card, /<span class="av av-4 av-big">/, 'the colour stays: a stale 4 must not look like a lower level');
+  assert.match(card, /<span class="chip chip-old">Bulletin of 23 Nov · out of date<\/span>/);
+  const strip = app.avalancheStripHtml(VT_ROW, { bulletin: VAL_THORENS }, new Date(late));
+  assert.match(strip, /<b>Avalanche, official: High<\/b>/);
+  assert.ok(!strip.includes('today'), 'an old bulletin is not called today’s');
+  assert.match(strip, /Bulletin of 23 Nov · out of date/);
+});
+
+test('no rating for want of snow, and no bulletin at all', () => {
+  const none = app.bulletinView(BULLETIN(null, [{ level: null, name: 'no_snow', lower_bound: null, upper_bound: null, period: 'all_day' }], { service: { name: 'Servei Meteorològic d’Andorra', url: 'https://www.meteo.ad/' } }), AT.getTime());
+  assert.equal(none.level, null);
+  assert.equal(none.unrated, 'No rating: not enough snow');
+  assert.equal(app.bulletinView({ level: null, rating: 'no_snow', valid_until: local(2026, 11, 24, 18) }, AT.getTime()).unrated, 'No rating: not enough snow');
+  assert.equal(app.bulletinView({ level: null, rating: 'no_rating' }, AT.getTime()).unrated, 'No rating in the current bulletin');
+
+  const row = { id: 'bg-bansko', name: 'Bansko', state: 'closed', avalanche: null };
+  const said = app.avalancheCardHtml(row, { bulletin: null, collected: true }, null, AT);
+  assert.match(said, /<b>No official avalanche bulletin here<\/b><span>We have no official avalanche bulletin for this area, so the danger is not known\. Ask locally/);
+  assert.ok(!said.includes('class="av '), 'never a level of our own');
+  // data of a backend that does not collect bulletins yet: nothing is claimed either way
+  assert.equal(app.avalancheCardHtml(row, { bulletin: null, collected: false }, null, AT), '');
+  assert.equal(app.avalancheStripHtml(row, { bulletin: null, collected: true }, AT), '');
+  assert.deepEqual(app.avalancheSummary(null, true), { level: null, text: 'No official avalanche bulletin', note: '', old: '' });
+  assert.equal(app.avalancheSummary(null, false), null);
+});
+
+test('the signs from the weather as words', () => {
+  const full = (sign) => app.signView(sign, '2026-11-24');
+  const short = (sign) => app.signView(sign, '2026-11-24', true);
+  const loading = { key: 'wind_loading', strength: 'strong', lee: ['N', 'NW'], levels: WIND };
+  assert.deepEqual(full(loading), { key: 'wind_loading', name: 'Wind drifting snow', text: 'to 43 km/h at 3195 m and 39 km/h at 2800 m, from the south-south-east, on 70 cm of new snow', since: '', sinceDay: '' });
+  assert.equal(short(loading).text, 'to 43 km/h from SSE, on fresh snow');
+  assert.equal(full({ key: 'strong_wind', levels: [{ elevation_m: 2560, wind_kmh: 45, from_deg: 248 }] }).text, 'to 45 km/h at 2560 m, from the west-south-west, enough to drift loose snow');
+  assert.equal(full({ key: 'strong_wind', levels: [{ elevation_m: 1300, wind_kmh: 40 }] }).text, 'to 40 km/h at 1300 m, enough to drift loose snow', 'below 1500 m the direction is not known');
+  assert.equal(full({ key: 'heavy_snowfall', levels: [{ elevation_m: 3279, snow_cm: 24, snow_72h_cm: 30 }, { elevation_m: 2200, snow_cm: 18, snow_72h_cm: 20 }] }).text, '24 cm in 24 h at 3279 m');
+  assert.equal(full({ key: 'heavy_snowfall', levels: [{ elevation_m: 3000, snow_cm: 12, snow_72h_cm: 55 }] }).text, '55 cm in 3 days at 3000 m');
+  assert.equal(full({ key: 'heavy_snowfall', levels: SNOW_70 }).text, '70 cm reported at 3200 m');
+  assert.deepEqual(full(SETTLING), { key: 'new_snow_settling', name: 'New snow settling', text: 'after 70 cm reported at 3200 m', since: 'Since Mon 23', sinceDay: '2026-11-23' });
+  assert.equal(full(DRIFTED).text, 'may lie in terrain traps, mostly on slopes facing north to north-west');
+  assert.equal(full(DRIFTED).since, 'Since Wed', 'a day of the list below needs no number');
+  assert.equal(short(DRIFTED).text, 'in terrain traps, mostly on N to NW slopes');
+  assert.equal(full({ key: 'drifted_snow', since: '2026-11-25', levels: [] }).text, 'may lie in terrain traps', 'no lee side without a wind direction');
+  assert.equal(full({ key: 'rain_on_snow', levels: [{ elevation_m: 2200, rain_mm: 6 }] }).text, '6 mm of rain at 2200 m');
+  assert.equal(full({ key: 'warming', first: true, levels: [{ elevation_m: 2200, t_max_c: 4, rise_c: 9, freezing_level_m: 3050 }] }).text, 'to 4° at 2200 m, 9° warmer than the day before, freezing level 3050 m, the first thaw in a month');
+  assert.equal(full({ key: 'after_rain', since: '2026-11-26', levels: [] }).text, 'wet, weakened snow; an icy crust once it freezes');
+  assert.equal(full({ key: 'recent_thaw', since: '2026-11-26', levels: [] }).text, 'wet snow by day; a crust once it freezes');
+  assert.equal(full({ key: 'crust_below_new_snow', levels: [{ elevation_m: 2200, snow_cm: 15, thaw: '2026-11-26' }] }).text, '15 cm of new snow on an icy crust from the thaw of Thu 26');
+  assert.match(full({ key: 'weak_layer_possible', levels: [{ elevation_m: 2200, dry_days: 7 }] }).text, /^new snow on a long cold, dry spell at 2200 m: a weak layer may lie under it$/);
+  assert.equal(full({ key: 'a_sign_of_a_later_version', levels: [] }), null, 'a text is never made up');
+  assert.equal(app.windFrom(0), 'the north');
+  assert.equal(app.windFrom(359, true), 'N');
+  assert.equal(app.windFrom(null), '');
+});
+
+test('the Status card: one line per sign, its days joined', () => {
+  assert.deepEqual(app.signLines(VT_FORECAST, '2026-11-24'), [
+    { when: 'Tue 24 – Fri 27', name: 'New snow settling', text: 'after 70 cm reported at 3200 m on Mon 23' },
+    { when: 'Wed 25', name: 'Wind drifting snow', text: 'to 43 km/h at 3195 m and 39 km/h at 2800 m, from the south-south-east, on 70 cm of new snow' },
+    { when: 'Thu 26 – Sat 28', name: 'Drifted snow', text: 'may lie in terrain traps, mostly on slopes facing north to north-west' },
+  ]);
+  assert.deepEqual(app.signLines(VT_FORECAST, '2026-11-29'), [], 'days that have passed are not shown');
+  assert.deepEqual(app.signLines({ levels: [] }), []);
+  assert.deepEqual(app.signLines(null), []);
+  // a sign of the day on two days running: one line, the stronger day's numbers; after a gap, a new line
+  const windy = (date, kmh) => ({ date, signs: [{ key: 'strong_wind', levels: [{ elevation_m: 2560, wind_kmh: kmh }] }] });
+  const lines = app.signLines({ avalanche_signs: { days: [windy('2026-11-24', 40), windy('2026-11-25', 61), windy('2026-11-27', 38)] } }, '2026-11-24');
+  assert.deepEqual(lines.map((line) => [line.when, line.text]), [['Tue 24 – Wed 25', 'to 61 km/h at 2560 m, enough to drift loose snow'], ['Fri 27', 'to 38 km/h at 2560 m, enough to drift loose snow']]);
+
+  const card = app.avalancheCardHtml(VT_ROW, { bulletin: VAL_THORENS, collected: true }, VT_FORECAST, AT);
+  assert.match(card, /<div class="label">Avalanche danger · off-piste<\/div><a class="av-details" href="#\/resort\/fr-val-thorens\/avalanche">Details/);
+  assert.match(card, /<span class="av av-4 av-big"><span class="sr">Avalanche danger <\/span>4<\/span><div><span class="av-word">High<\/span><span class="av-where">above 2800 m earlier in the day<\/span><span class="av-other">3 Considerable later in the day<\/span>/);
+  assert.match(card, /<div class="av-sub">From the weather\*<\/div><div class="sign">.*<b>Tue 24 – Fri 27 · New snow settling\*<\/b> <span class="sign-text">after 70 cm reported at 3200 m on Mon 23<\/span>/s);
+  assert.ok(card.includes(app.PISTE_LINE) && card.includes(app.STAR_LINE), 'the two fixed lines close every avalanche block');
+  // while the bulletin's file loads, the list's row gives the level
+  assert.match(app.avalancheCardHtml(VT_ROW, { bulletin: undefined, collected: true }, null, AT), /<span class="av av-4 av-big">.*<span class="av-word">High<\/span>/s);
+  // the signs alone, from a backend that does not collect bulletins yet
+  const alone = app.avalancheCardHtml({ ...VT_ROW, avalanche: null }, { bulletin: null, collected: false }, VT_FORECAST, AT);
+  assert.match(alone, /From the weather\*/);
+  assert.ok(!alone.includes('class="av ') && !alone.includes('No official'));
+});
+
+test('the avalanche card is on the Status tab for every state, and not in the Resorts list', () => {
+  const av = { bulletin: VAL_THORENS, collected: true };
+  const tile = { lifts: { open: 3, total: 9 }, slopes: { open: 2, total: 9 }, checked_at: AT.toISOString(), source: { kind: 'liftradar', label: 'LiftRadar' } };
+  for (const state of ['open', 'closed_today', 'closed']) {
+    const html = app.statusHtml({ ...VT_ROW, state }, { ...tile, state, season: { phase: state === 'closed' ? 'before' : 'running', opens: '2026-11-21', ends: '2027-05-02' } }, AT, av, VT_FORECAST);
+    assert.equal(html.split('class="panel av-card"').length, 2, `${state}: the card, once`);
+  }
+  const noData = app.statusHtml({ ...VT_ROW, state: 'no_data', reason: 'not_collected' }, null, AT, av, VT_FORECAST);
+  assert.match(noData, /No live data from the resort.*class="panel av-card"/s, 'a resort without live data still has its bulletin (Engelberg)');
+  assert.ok(!app.statusHtml(SOELDEN_ROW, SOELDEN, NOW).includes('av-card'), 'nothing known and nothing to say: no card');
+  const rows = app.joinRows({ resorts: [{ id: 'fr-val-thorens', name: 'Val Thorens', country: 'FR', country_name: 'France' }] }, { resorts: [{ id: 'fr-val-thorens', state: 'open', avalanche: { level: 4, valid_until: VAL_THORENS.valid_until } }] }, AT.getTime());
+  assert.deepEqual(rows[0].avalanche, { level: 4, valid_until: VAL_THORENS.valid_until });
+  const list = app.resortsHtml(rows, new Set(['fr-val-thorens']), '', AT.toISOString());
+  assert.ok(!list.includes('class="av') && !/avalanche/i.test(list), 'the Resorts tab carries no avalanche level');
+});
+
+test('the Forecast tab: today’s official level on top, the signs under their days', () => {
+  const strip = app.avalancheStripHtml(VT_ROW, { bulletin: VAL_THORENS, collected: true }, AT);
+  assert.match(strip, /^<a class="av-strip" href="#\/resort\/fr-val-thorens\/avalanche"><span class="av av-4">.*<b>Avalanche, official today: High<\/b><span>above 2800 m earlier in the day · Météo-France, 23 Nov<\/span>/s);
+  const html = app.forecastHtml(VT_FORECAST, 'top', AT.getTime(), null, strip);
+  assert.ok(html.indexOf('av-strip') < html.indexOf('fc-head'), 'the level stands above the days');
+  const days = html.split(/<div class="day(?: off)?">/).slice(1);
+  assert.equal(days.length, 7);
+  assert.deepEqual(days.map((d) => d.split('<div class="sign">').length - 1), [1, 2, 2, 2, 1, 0, 0], 'a day without a sign has no line');
+  assert.match(days[1], /<div class="day-signs"><div class="sign">.*<b>Wind drifting snow\*<\/b> <span class="sign-text">to 43 km\/h from SSE, on fresh snow<\/span>.*<span class="since">Since Mon 23 ·<\/span> <b>New snow settling\*<\/b>/s);
+  assert.match(days[2], /<span class="since">Since Wed ·<\/span> <b>Drifted snow\*<\/b> <span class="sign-text">in terrain traps, mostly on N to NW slopes<\/span>/);
+  assert.ok(html.includes(app.STAR_LINE));
+  const plain = app.forecastHtml({ ...VT_FORECAST, avalanche_signs: undefined }, 'top', AT.getTime());
+  assert.ok(!plain.includes('day-signs') && !plain.includes(app.STAR_LINE) && !plain.includes('av-strip'), 'a forecast of an older engine looks as before');
+  const inResort = app.resortHtml(VT_ROW, 'forecast', null, VT_FORECAST, false, 'top', '', {}, undefined, { bulletin: VAL_THORENS, collected: true });
+  assert.match(inResort, /class="av-strip"/);
+});
+
+test('the Details screen and the Favourites card', () => {
+  const html = app.avalancheDetailHtml(VT_ROW, { bulletin: VAL_THORENS, collected: true }, VT_FORECAST, AT);
+  assert.match(html, /<a class="backline" href="#\/resort\/fr-val-thorens" data-up>.*<span>Val Thorens<\/span><\/a><h1>Avalanche danger<\/h1>/s);
+  assert.match(html, /<div class="label">Earlier in the day<\/div><div class="av-row"><span class="av av-4">.*<b>High<\/b> above 2800 m<\/span><\/div>/s);
+  assert.match(html, /<div class="label">Later in the day<\/div><div class="av-row"><span class="av av-3">.*<b>Considerable<\/b> at all elevations<\/span><\/div>/s);
+  assert.match(html, /Not named in this bulletin’s data\. The full bulletin describes them\./);
+  assert.match(html, /<a class="cta cta-ink" href="https:\/\/meteofrance\.com\/meteo-montagne" target="_blank" rel="noopener">Full bulletin at Météo-France/);
+  assert.equal(html.split('<div class="av-day">').length - 1, 5, 'the five days that have a sign');
+  assert.match(html, /Avalanche bulletin by Météo-France, read through LiftRadar\./);
+  assert.match(html, /href="#\/about\/avalanche">How to read the avalanche information/);
+  const withProblems = app.avalancheDetailHtml(VT_ROW, { bulletin: BULLETIN(4, [RATING(4)], { problems: ['new_snow', 'wind_slab'] }) }, null, AT);
+  assert.match(withProblems, /<span class="pill">New snow<\/span><span class="pill">Wind slab<\/span>/);
+  assert.ok(!withProblems.includes('From the weather'), 'no forecast signs: no such block, and no line saying so');
+
+  const fav = app.favouriteHtml(VT_ROW, null, 0, { bulletin: VAL_THORENS, collected: true });
+  assert.match(fav, /<a class="fav-av" href="#\/resort\/fr-val-thorens\/avalanche"><span class="av av-4">.*<b>High<\/b> <span>· avalanche danger off-piste<\/span>/s);
+  assert.match(app.favouriteHtml({ ...VT_ROW, avalanche: null }, null, 0, { bulletin: null, collected: true }), /<b>No official avalanche bulletin<\/b>/);
+  assert.ok(!app.favouriteHtml({ ...VT_ROW, avalanche: null }, null, 0, { bulletin: null, collected: false }).includes('fav-av'));
+  assert.ok(!app.favouriteHtml(SOELDEN_ROW, SOELDEN).includes('fav-av'), 'as before for data without bulletins');
+});
+
+test('About › Avalanche information', () => {
+  const html = app.avalancheInfoHtml();
+  assert.match(html, /<h1>Avalanche information\*<\/h1><p class="av-star">\* For guidance only and in no way a permission to ride off-piste\.<\/p>/);
+  assert.match(html, /<h2 class="strong">We use official warning levels, where available\.<\/h2>/);
+  assert.match(html, /<b>Considerable\.<\/b> Weak bonds on many steep slopes; one skier can start an avalanche\. <b>Most fatal accidents happen at this level, as people tend to underestimate the danger!<\/b>/);
+  assert.equal(html.split('<b>Most fatal').length, 2, 'level 3 alone carries the bold warning');
+  for (const level of [1, 2, 3, 4, 5]) assert.ok(html.includes(`class="av av-${level}"`));
+  assert.match(html, /<b>Terrain traps<\/b> are gullies, bowls, hollows and the foot of steep slopes\./);
+  assert.match(html, /No sign does not mean safe: the danger is simply not known\./);
+});
+
+// Boris's rule of 23 Nov 2026: "our signs should never be more optimistic than the officials". Every
+// combination of an official bulletin, its age and our signs is drawn on every screen that shows
+// avalanche danger, and each drawing must (1) lead with the file's highest level in its colour,
+// (2) use no word that plays the danger down, (3) say nothing at all about a day without signs.
+test('nothing the app draws reads milder than the official level', () => {
+  const SOOTHING = /\b(safe|safer|stable|calm|quiet|harmless|all[- ]clear|no danger|no risk|low risk|no signs?|no warning|nothing to report|good conditions|fine conditions|settled|secure to|ok to)\b/i;
+  const tagless = (html) => html.replace(/<svg.*?<\/svg>/gs, ' ').replace(/<[^>]+>/g, ' ');
+  const ratingSets = (level) => {
+    const sets = [[RATING(level)], []]; // one rating for the whole day; the level alone (the list's short form has no rows)
+    if (level > 1) {
+      sets.push([RATING(level, 2000, null), RATING(level - 1, null, 2000)]); // lower below a height
+      sets.push([RATING(level, null, null, 'later'), RATING(level - 1, null, null, 'earlier')]); // lower earlier in the day
+      sets.push([RATING(1, null, 'treeline'), RATING(level, 'treeline', null)]);
+      sets.push([RATING(level - 1)]); // the source's own figure above every row
+    }
+    return sets;
+  };
+  const signSets = [null, VT_FORECAST, { ...VT_FORECAST, avalanche_signs: { schema: 1, days: [], record_days: 0 } }, { ...VT_FORECAST, avalanche_signs: { schema: 1, days: [{ date: '2026-11-24', signs: [{ key: 'unknown_to_this_version' }] }] } }];
+  const times = [AT, new Date(2026, 10, 25, 7, 0, 0)]; // while the bulletin holds, and the morning after
+  let drawn = 0;
+  for (const level of [1, 2, 3, 4, 5]) {
+    for (const ratings of ratingSets(level)) {
+      for (const forecast of signSets) {
+        for (const now of times) {
+          const bulletin = BULLETIN(level, ratings);
+          const row = { ...VT_ROW, avalanche: { level, valid_until: bulletin.valid_until } };
+          const av = { bulletin, collected: true };
+          const screens = {
+            card: app.avalancheCardHtml(row, av, forecast, now),
+            cardWhileLoading: app.avalancheCardHtml(row, { bulletin: undefined, collected: true }, forecast, now),
+            strip: app.avalancheStripHtml(row, av, now),
+            detail: app.avalancheDetailHtml(row, av, forecast, now),
+            favourite: app.favouriteHtml(row, null, 0, av),
+          };
+          for (const [name, html] of Object.entries(screens)) {
+            const where = `${name}, level ${level}, ${JSON.stringify(ratings.map((r) => [r.level, r.lower_bound, r.upper_bound, r.period]))}, ${now.getDate()} Nov`;
+            const first = /class="av av-(\d)/.exec(html);
+            assert.ok(first, `${where}: the level is shown`);
+            assert.equal(Number(first[1]), level, `${where}: the first level on screen is the highest of the day`);
+            assert.ok(html.includes(app.AVALANCHE_WORDS[level]), `${where}: with its word`);
+            const text = tagless(html);
+            assert.ok(!SOOTHING.test(text), `${where}: "${(SOOTHING.exec(text) || [])[0]}" plays the danger down`);
+            // "Low" is the name of level 1 and nothing else
+            if (level > 1 && !ratings.some((r) => r.level === 1)) assert.ok(!/\blow\b/i.test(text), `${where}: "low" without a level 1`);
+            if (now !== AT && name !== 'favourite') assert.match(html, /out of date/, `${where}: an old bulletin says so`);
+            if (now !== AT) assert.ok(!/official today/.test(html), `${where}: an old bulletin is not today's`);
+            drawn += 1;
+          }
+          // the signs are there whatever the level, and a forecast without signs adds no line at all
+          const lines = app.signLines(forecast, app.today(now));
+          const card = screens.card;
+          assert.equal(card.split('<div class="sign">').length - 1, lines.length);
+          assert.equal(card.includes('From the weather*'), lines.length > 0, 'no heading over nothing');
+        }
+      }
+    }
+  }
+  assert.ok(drawn > 800, `${drawn} drawings checked`);
+  // without a bulletin: never a badge, whatever the signs
+  for (const forecast of signSets) {
+    for (const collected of [true, false]) {
+      const row = { ...VT_ROW, avalanche: null };
+      const html = app.avalancheCardHtml(row, { bulletin: null, collected }, forecast, AT) + app.avalancheDetailHtml(row, { bulletin: null, collected }, forecast, AT) + app.avalancheStripHtml(row, { bulletin: null, collected }, AT);
+      assert.ok(!html.includes('class="av '), 'no level of our own');
+      assert.ok(!SOOTHING.test(tagless(html)));
+    }
+  }
+  // the sign texts themselves, in both forms
+  for (const day of SIGNS.days) for (const sign of day.signs) for (const short of [false, true]) {
+    const view = app.signView(sign, '2026-11-24', short);
+    if (view) assert.ok(!SOOTHING.test(`${view.name} ${view.text}`), `${sign.key}: ${view.text}`);
+  }
 });

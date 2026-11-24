@@ -138,6 +138,47 @@ await shot(page, '31-about', true);
 await page.goto(`${base}#/resort/no-such-resort`);
 await shot(page, '32-not-found');
 
+// avalanche danger (app 0.7). The official level needs the backend's bulletin files (backend 0.8.0) and
+// the signs the engine's (0.3.0); before them the screens are opened all the same and must simply be clean.
+await page.goto(`${base}#/about/avalanche`);
+await page.waitForSelector('.av-info');
+await shot(page, '34-avalanche-information', true);
+{
+  const index = await page.evaluate(() => fetch('data/status/index.json').then((r) => r.json()));
+  const withLevel = index.resorts.filter((r) => r.avalanche && r.avalanche.level);
+  const unrated = index.resorts.find((r) => r.avalanche && !r.avalanche.level);
+  const without = index.resorts.find((r) => !r.avalanche);
+  console.log('avalanche: bulletins collected:', Boolean(index.avalanche_bulletins), '| resorts with a level:', withLevel.length, '| unrated:', unrated ? unrated.id : 'none');
+  const highest = withLevel.sort((a, b) => b.avalanche.level - a.avalanche.level)[0];
+  for (const [name, entry] of [['35-avalanche-level', highest], ['36-avalanche-unrated', unrated], ['37-avalanche-none', without]]) {
+    if (!entry) continue;
+    await page.goto(`${base}#/resort/${entry.id}`);
+    await page.waitForSelector('#tab > *');
+    await page.waitForTimeout(600); // the bulletin and the forecast arrive after the status
+    console.log(`  ${entry.id}: card`, await page.locator('.av-card').count(), '| badge', await page.locator('.av-card .av').first().innerText().catch(() => 'none'), '| sign lines', await page.locator('.av-card .sign').count());
+    await shot(page, `${name}-status`, true);
+    await page.goto(`${base}#/resort/${entry.id}/avalanche`);
+    await page.waitForSelector('.backline');
+    await page.waitForTimeout(300);
+    await shot(page, `${name}-details`, true);
+    await page.goto(`${base}#/resort/${entry.id}/forecast`);
+    await page.waitForSelector('.day');
+    console.log(`  ${entry.id}: forecast strip`, await page.locator('.av-strip').count(), '| days with signs', await page.locator('.day-signs').count());
+    await shot(page, `${name}-forecast`, true);
+  }
+  // Details and back: the phone's back button must not return to Details
+  if (highest) {
+    await page.goto(`${base}#/resort/${highest.id}`);
+    await page.waitForSelector('.av-details');
+    await page.locator('.av-details').click();
+    await page.waitForSelector('.backline');
+    await page.locator('.backline').click();
+    await page.waitForSelector('.tabs');
+    await page.goBack();
+    console.log('  details and back, then the back button:', await page.evaluate(() => location.hash || '(the list)'));
+  }
+}
+
 // back from a resort returns to the same place in the list
 await page.goto(base);
 await page.waitForSelector('.row');

@@ -1266,3 +1266,313 @@ button {
   color: var(--snow);
   font-weight: 600;
 }
+
+/* ---- Avalanche danger. Colour and a number belong to the official level alone (the European scale);
+   our signs from the weather are an ink outline triangle and words. */
+.av {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(18, 20, 22, 0.2); /* keeps yellow visible on white */
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--ink);
+}
+.av-1 {
+  background: #ccff66;
+}
+.av-2 {
+  background: #ffff00;
+}
+.av-3 {
+  background: #ff9900;
+}
+.av-4 {
+  background: #ff0000;
+}
+.av-5 {
+  background: repeating-conic-gradient(#ff0000 0% 25%, #121416 0% 50%) 50% / 13px 13px;
+  box-shadow: none;
+}
+.av-5 i {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--snow);
+  font-style: normal;
+}
+.av-big {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+}
+.av-5.av-big {
+  background-size: 28px 28px;
+}
+.av-5.av-big i {
+  width: 38px;
+  height: 38px;
+}
+.av-card {
+  gap: 12px;
+}
+.av-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: -10px 0;
+}
+.av-details {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+.av-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.av-head > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.av-word {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.av-where {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--graphite);
+}
+.av-other,
+.av-meta {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--slate);
+}
+.av-card > .chip {
+  align-self: flex-start;
+}
+.av-none {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.av-none b {
+  font-size: 15px;
+  font-weight: 800;
+}
+.av-none span {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--slate);
+}
+.av-sub {
+  font-size: 13px;
+  font-weight: 800;
+}
+.sign {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.sign .tri {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.sign b {
+  font-weight: 800;
+}
+.sign .since {
+  font-weight: 600;
+  color: var(--slate);
+}
+.sign-text {
+  color: var(--graphite);
+}
+.av-fixed {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--graphite);
+}
+.av-star {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+.plain > .av-star {
+  padding: 0 4px;
+}
+.av-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.av-row > span:last-child {
+  padding-top: 3px;
+  color: var(--graphite);
+}
+.av-row b {
+  font-weight: 800;
+  color: var(--ink);
+}
+.av-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.av-day {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.av-day-signs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* today's official level above the Forecast tab's days */
+.av-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-radius: 16px;
+  background: var(--snow);
+  color: var(--ink);
+  text-decoration: none;
+}
+.av-strip-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.av-strip-text b {
+  font-size: 13px;
+  font-weight: 800;
+}
+.av-strip-text span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--slate);
+}
+.av-strip-text .chip-note.old {
+  color: var(--amber);
+}
+.av-strip > svg {
+  flex-shrink: 0;
+}
+/* the signs under a forecast day */
+.day-signs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--glacier);
+}
+.day-signs .sign {
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.day-signs .tri {
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+}
+.fine b {
+  color: var(--ink);
+}
+/* the level in a Favourites card */
+.fav-av {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ice);
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.fav-av b {
+  font-weight: 700;
+}
+.fav-av span span {
+  font-weight: 500;
+  color: var(--slate);
+}
+.fav-av .chip-note {
+  display: block;
+  margin-top: 2px;
+}
+/* a screen opened from another: the way back above its title */
+.backline {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: -6px 0 -14px -6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  text-decoration: none;
+}
+.plain > .lead {
+  margin-top: -8px;
+}
+.av-info p {
+  color: var(--graphite);
+}
+.av-info p b {
+  color: var(--ink);
+}
+.av-info h2.strong {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+.av-info .av-row,
+.av-info .av-chips {
+  margin-top: 6px;
+}
+.entry-link {
+  color: var(--ink);
+  text-decoration: none;
+}
+.entry-link svg {
+  flex-shrink: 0;
+}
